@@ -1,0 +1,23 @@
+# Python 缓存与虚拟环境
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# 静态检查缓存
+.ruff_cache/
+.mypy_cache/
+
+# 构建产物
+build/
+dist/
+*.spec
+
+# 本机设置（可能含本地路径）
+bulk_unzip.json
+
+# 系统与编辑器
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
