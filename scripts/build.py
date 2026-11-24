@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+import os
 import subprocess
 import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 NAME = "BulkUnzip"
+ICON = ROOT / "assets" / "app.ico"
 
 
 def main() -> int:
@@ -16,6 +18,8 @@ def main() -> int:
         sys.executable, "-m", "PyInstaller",
         "--noconfirm", "--clean", "--onefile", "--windowed",
         "--name", NAME,
+        "--icon", str(ICON),
+        "--add-data", f"{ROOT / 'assets'}{os.pathsep}assets",
         "--paths", str(ROOT),
         str(ROOT / "main.py"),
     ]

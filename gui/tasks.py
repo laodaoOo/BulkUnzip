@@ -34,7 +34,6 @@ class ExtractWorker(QThread):
         self._tools = tools
         self._delete_source = delete_source
         self._cancel = threading.Event()
-        self.was_cancelled = False
 
     def cancel(self) -> None:
         """请求停止：结束当前压缩包并跳过后续目录。"""
@@ -59,7 +58,7 @@ class ExtractWorker(QThread):
                 total.merge(outcome)
                 self.row_finished.emit(index, outcome)
         except CancelledError:
-            self.was_cancelled = True
+            self.log.emit("已停止。")
         except Exception as error:  # noqa: BLE001 - 后台线程兜底，交给界面提示
             self.failed.emit(str(error))
         finally:
