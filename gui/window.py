@@ -1,13 +1,12 @@
-"""主窗口：7-Zip 风格的工具条 + 列表 + 路径栏 + 状态栏。"""
+"""主窗口：拖入 1 级目录，逐行解压到输出目录（Windows 11 浅色风格）。"""
 
 from __future__ import annotations
 
 import sys
-from dataclasses import dataclass
 from pathlib import Path
 
 from PySide6.QtCore import QSize, Qt, QUrl
-from PySide6.QtGui import QAction, QDesktopServices, QIcon, QKeySequence
+from PySide6.QtGui import QDesktopServices, QIcon
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QCheckBox,
@@ -15,17 +14,14 @@ from PySide6.QtWidgets import (
     QFileDialog,
     QFrame,
     QHBoxLayout,
-    QHeaderView,
     QLabel,
     QLineEdit,
+    QListWidget,
+    QListWidgetItem,
     QMainWindow,
     QMessageBox,
     QProgressBar,
     QPushButton,
-    QStyle,
-    QTableWidget,
-    QTableWidgetItem,
-    QToolBar,
     QVBoxLayout,
     QWidget,
 )
@@ -35,30 +31,85 @@ from gui.config import Settings, load_settings, save_settings
 from gui.dialogs import LogDialog, ResultDialog, SettingsDialog
 from gui.resources import asset_path
 from gui.tasks import ExtractWorker
-from gui.version import APP_VERSION
 
-COLUMNS = ("名称", "状态", "进度", "输出")
-ROW_HEIGHT = 24
-TOOLBAR_ICON = 24
+ROW_HEIGHT = 68
 
 
-@dataclass
-class TaskEntry:
-    """表格中的一行：来源目录与对应控件。"""
+class TaskRow(QWidget):
+    """一行任务：目录名、状态、进度与移除。"""
 
-    path: Path
-    status: QTableWidgetItem
-    progress: QProgressBar
-    target: QTableWidgetItem
+    def __init__(self, path: Path, on_remove) -> None:
+        super().__init__()
+        self.path = path
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(8, 6, 6, 6)
+        layout.setSpacing(12)
+        text = QVBoxLayout()
+        text.setSpacing(2)
+        name = QLabel(path.name)
+        name.setObjectName("rowTitle")
+        self.status = QLabel("等待开始")
+        self.status.setObjectName("muted")
+        text.addWidget(name)
+        text.addWidget(self.status)
+        layout.addLayout(text, 1)
+        self.progress = QProgressBar()
+        self.progress.setRange(0, 1)
+        self.progress.setValue(0)
+        self.progress.setTextVisible(False)
+        self.progress.setFixedWidth(150)
+        layout.addWidget(self.progress)
+        remove = QPushButton("移除")
+        remove.setFixedWidth(64)
+        remove.clicked.connect(on_remove)
+        layout.addWidget(remove)
+
+    def waiting(self) -> None:
+        """回到等待状态。"""
+        self.status.setText("等待开始")
+        self.progress.setRange(0, 1)
+        self.progress.setValue(0)
+
+    def running(self, total: int) -> None:
+        """开始解压这个目录。"""
+        self.status.setText(f"解压中 0/{total}")
+        self.progress.setRange(0, max(total, 1))
+        self.progress.setValue(0)
+
+    def progress_changed(self, done: int, total: int) -> None:
+        """更新解压进度。"""
+        self.status.setText(f"解压中 {done}/{max(total, 1)}")
+        self.progress.setRange(0, max(total, 1))
+        self.progress.setValue(done)
+
+    def finished(self, outcome: Outcome) -> None:
+        """显示完成统计。"""
+        if outcome.skipped:
+            self.status.setText("没有找到压缩包")
+            self.progress.setRange(0, 1)
+            self.progress.setValue(0)
+            return
+        text = f"完成 {outcome.archives} 个包 / {outcome.entries} 个条目"
+        if outcome.removed:
+            text += f"，已删源 {outcome.removed}"
+        if outcome.failures:
+            text += f"，失败 {len(outcome.failures)}"
+        self.status.setText(text)
+        self.progress.setRange(0, 1)
+        self.progress.setValue(1)
+
+    def cancelled(self) -> None:
+        """取消后的状态。"""
+        self.status.setText("已停止")
 
 
 class MainWindow(QMainWindow):
-    """拖入 1 级目录，逐行解压；关闭前确认运行中的任务。"""
+    """拖入即任务列表；一次执行一个目录，结束再下一个。"""
 
     def __init__(self) -> None:
         super().__init__()
         self.settings: Settings = load_settings()
-        self._entries: list[TaskEntry] = []
+        self._rows: list[TaskRow] = []
         self._plans: list[SourcePlan] = []
         self._worker: ExtractWorker | None = None
         self._tools: dict[str, Path | None] = {"7z": None, "rar": None}
@@ -66,167 +117,128 @@ class MainWindow(QMainWindow):
         self._cancel_requested = False
         self.setWindowTitle("BulkUnzip")
         self.setWindowIcon(QIcon(str(asset_path("app.ico"))))
-        self.resize(960, 620)
-        self.setMinimumSize(760, 480)
+        self.resize(960, 640)
+        self.setMinimumSize(760, 520)
         self.setAcceptDrops(True)
-        self._build_actions()
-        self._build_menu()
-        self._build_toolbar()
-        self._build_table()
-        self._build_layout()
-        self._build_statusbar()
+        self._build_ui()
         self.log_dialog = LogDialog(self)
         self._restore()
 
     # ---------- 界面 ----------
 
-    def _icon(self, pixmap: QStyle.StandardPixmap) -> QIcon:
-        return self.style().standardIcon(pixmap)
-
-    def _build_actions(self) -> None:
-        self.add_action = QAction(
-            self._icon(QStyle.StandardPixmap.SP_DirOpenIcon), "添加目录", self,
-        )
-        self.add_action.setShortcut(QKeySequence.StandardKey.Open)
-        self.add_action.setStatusTip("把一个或多个 1 级目录加入任务列表")
-        self.add_action.triggered.connect(self._choose_sources)
-        self.remove_action = QAction(self._icon(QStyle.StandardPixmap.SP_TrashIcon), "移除", self)
-        self.remove_action.setShortcut(QKeySequence.StandardKey.Delete)
-        self.remove_action.setStatusTip("移除选中的任务")
-        self.remove_action.triggered.connect(self._remove_selected)
-        self.clear_action = QAction(
-            self._icon(QStyle.StandardPixmap.SP_DialogResetButton), "清空列表", self,
-        )
-        self.clear_action.triggered.connect(self._clear)
-        self.start_action = QAction(
-            self._icon(QStyle.StandardPixmap.SP_MediaPlay), "开始解压", self,
-        )
-        self.start_action.setStatusTip("按列表顺序逐个目录解压")
-        self.start_action.triggered.connect(self._start)
-        self.stop_action = QAction(self._icon(QStyle.StandardPixmap.SP_MediaStop), "停止", self)
-        self.stop_action.setEnabled(False)
-        self.stop_action.triggered.connect(self._cancel)
-        self.log_action = QAction(
-            self._icon(QStyle.StandardPixmap.SP_FileDialogDetailedView), "日志", self,
-        )
-        self.log_action.triggered.connect(self._show_log)
-        self.settings_action = QAction(
-            self._icon(QStyle.StandardPixmap.SP_FileDialogInfoView), "设置", self,
-        )
-        self.settings_action.triggered.connect(self._open_settings)
-        self.detect_action = QAction("重新检测工具", self)
-        self.detect_action.triggered.connect(self._refresh_tools)
-        self.about_action = QAction("关于 BulkUnzip", self)
-        self.about_action.triggered.connect(self._show_about)
-
-    def _build_menu(self) -> None:
-        file_menu = self.menuBar().addMenu("文件(&F)")
-        file_menu.addAction(self.add_action)
-        file_menu.addSeparator()
-        exit_action = QAction("退出", self)
-        exit_action.setShortcut(QKeySequence.StandardKey.Quit)
-        exit_action.triggered.connect(self.close)
-        file_menu.addAction(exit_action)
-        edit_menu = self.menuBar().addMenu("编辑(&E)")
-        edit_menu.addAction(self.remove_action)
-        edit_menu.addAction(self.clear_action)
-        tools_menu = self.menuBar().addMenu("工具(&T)")
-        tools_menu.addAction(self.detect_action)
-        tools_menu.addAction(self.settings_action)
-        help_menu = self.menuBar().addMenu("帮助(&H)")
-        help_menu.addAction(self.about_action)
-
-    def _build_toolbar(self) -> None:
-        toolbar = QToolBar("工具栏", self)
-        toolbar.setObjectName("mainToolBar")
-        toolbar.setMovable(False)
-        toolbar.setFloatable(False)
-        toolbar.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextUnderIcon)
-        toolbar.setIconSize(QSize(TOOLBAR_ICON, TOOLBAR_ICON))
-        for action in (self.add_action, self.remove_action, self.clear_action):
-            toolbar.addAction(action)
-        toolbar.addSeparator()
-        toolbar.addAction(self.start_action)
-        toolbar.addAction(self.stop_action)
-        toolbar.addSeparator()
-        toolbar.addAction(self.log_action)
-        toolbar.addAction(self.settings_action)
-        self.addToolBar(toolbar)
-
-    def _build_table(self) -> None:
-        self.table = QTableWidget(0, len(COLUMNS))
-        self.table.setHorizontalHeaderLabels(COLUMNS)
-        self.table.verticalHeader().setVisible(False)
-        self.table.verticalHeader().setDefaultSectionSize(ROW_HEIGHT)
-        self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
-        self.table.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
-        self.table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
-        self.table.setAlternatingRowColors(False)
-        self.table.setShowGrid(True)
-        self.table.setAcceptDrops(False)
-        self.table.setSortingEnabled(False)
-        self.table.itemDoubleClicked.connect(self._open_row_output)
-        header = self.table.horizontalHeader()
-        header.setSectionResizeMode(0, QHeaderView.ResizeMode.Interactive)
-        header.setSectionResizeMode(1, QHeaderView.ResizeMode.Interactive)
-        header.setSectionResizeMode(2, QHeaderView.ResizeMode.Fixed)
-        header.setSectionResizeMode(3, QHeaderView.ResizeMode.Stretch)
-        self.table.setColumnWidth(0, 240)
-        self.table.setColumnWidth(1, 230)
-        self.table.setColumnWidth(2, 130)
-
-    def _build_layout(self) -> None:
+    def _build_ui(self) -> None:
         root = QWidget()
         root.setObjectName("root")
         self.setCentralWidget(root)
         layout = QVBoxLayout(root)
-        layout.setContentsMargins(4, 4, 4, 0)
-        layout.setSpacing(4)
-        layout.addWidget(self.table, 1)
-        layout.addWidget(self._build_path_bar())
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(0)
+        layout.addWidget(self._build_header())
+        layout.addWidget(self._build_body(), 1)
 
-    def _build_path_bar(self) -> QWidget:
-        bar = QFrame()
-        bar.setObjectName("pathBar")
-        layout = QHBoxLayout(bar)
-        layout.setContentsMargins(8, 6, 8, 6)
-        layout.setSpacing(8)
-        label = QLabel("解压到:")
-        layout.addWidget(label)
+    def _build_header(self) -> QWidget:
+        header = QFrame()
+        header.setObjectName("header")
+        row = QHBoxLayout(header)
+        row.setContentsMargins(20, 12, 20, 12)
+        row.setSpacing(14)
+        title = QLabel("BulkUnzip")
+        title.setObjectName("appName")
+        row.addWidget(title)
+        subtitle = QLabel("批量解压 · 1 级 / 2 级目录")
+        subtitle.setObjectName("subtitle")
+        row.addWidget(subtitle)
+        row.addStretch(1)
+        self.tool_label = QLabel("正在检测工具…")
+        self.tool_label.setObjectName("muted")
+        row.addWidget(self.tool_label)
+        settings_button = QPushButton("设置")
+        settings_button.clicked.connect(self._open_settings)
+        row.addWidget(settings_button)
+        return header
+
+    def _build_body(self) -> QWidget:
+        body = QWidget()
+        layout = QVBoxLayout(body)
+        layout.setContentsMargins(20, 16, 20, 16)
+        layout.setSpacing(12)
+        top = QHBoxLayout()
+        top.setSpacing(8)
+        section = QLabel("任务")
+        section.setObjectName("sectionTitle")
+        top.addWidget(section)
+        top.addStretch(1)
+        add_button = QPushButton("添加目录")
+        add_button.clicked.connect(self._choose_sources)
+        clear_button = QPushButton("清空")
+        clear_button.clicked.connect(self._clear)
+        top.addWidget(add_button)
+        top.addWidget(clear_button)
+        layout.addLayout(top)
+        self.empty_hint = QLabel("把 1 级目录拖到这里，或点「添加目录」")
+        self.empty_hint.setObjectName("muted")
+        self.empty_hint.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        layout.addWidget(self.empty_hint)
+        self.list = QListWidget()
+        self.list.setObjectName("taskList")
+        self.list.setSelectionMode(QAbstractItemView.SelectionMode.NoSelection)
+        self.list.setVerticalScrollMode(QAbstractItemView.ScrollMode.ScrollPerPixel)
+        self.list.itemDoubleClicked.connect(self._open_row_output)
+        layout.addWidget(self.list, 1)
+        layout.addWidget(self._build_card())
+        return body
+
+    def _build_card(self) -> QWidget:
+        card = QFrame()
+        card.setObjectName("card")
+        layout = QVBoxLayout(card)
+        layout.setContentsMargins(16, 14, 16, 14)
+        layout.setSpacing(10)
+        output_row = QHBoxLayout()
+        output_row.setSpacing(8)
+        label = QLabel("输出目录")
+        label.setObjectName("muted")
+        label.setFixedWidth(60)
         self.output_edit = QLineEdit()
-        self.output_edit.setPlaceholderText("选择解压输出目录")
+        self.output_edit.setPlaceholderText("解压结果写到这个目录")
         self.output_edit.textChanged.connect(self._output_changed)
-        layout.addWidget(self.output_edit, 1)
         browse = QPushButton("浏览")
-        browse.setFixedWidth(56)
-        browse.setToolTip("浏览输出目录")
+        browse.setFixedWidth(64)
         browse.clicked.connect(self._choose_output)
-        layout.addWidget(browse)
-        self.delete_check = QCheckBox("解压后删除源文件")
-        self.delete_check.setToolTip("一个 2 级目录的压缩包全部解开后才删除源文件")
+        output_row.addWidget(label)
+        output_row.addWidget(self.output_edit, 1)
+        output_row.addWidget(browse)
+        layout.addLayout(output_row)
+        self.delete_check = QCheckBox("解压后删除源文件（每个 2 级目录解开后清理）")
         self.delete_check.toggled.connect(self._delete_changed)
         layout.addWidget(self.delete_check)
-        return bar
-
-    def _build_statusbar(self) -> None:
-        self.summary = QLabel("0 个任务")
-        self.statusBar().addWidget(self.summary, 1)
-        self.tool_label = QLabel()
-        self.tool_label.setObjectName("statusPanel")
-        self.statusBar().addPermanentWidget(self.tool_label)
-
-    def _show_about(self) -> None:
-        QMessageBox.about(
-            self, "关于 BulkUnzip",
-            f"<b>BulkUnzip {APP_VERSION}</b><br>"
-            "按 1 级 / 2 级目录批量解压（zip / 7z / rar）。<br><br>"
-            "需要系统安装 7-Zip 与 WinRAR 命令行工具。<br>"
-            "GPL-3.0-only，解压引擎源自 NestPack。",
-        )
+        actions = QHBoxLayout()
+        actions.setSpacing(8)
+        self.start_button = QPushButton("开始解压")
+        self.start_button.setObjectName("primary")
+        self.start_button.setMinimumHeight(34)
+        self.start_button.clicked.connect(self._start)
+        self.cancel_button = QPushButton("停止")
+        self.cancel_button.clicked.connect(self._cancel)
+        self.cancel_button.hide()
+        log_button = QPushButton("查看日志")
+        log_button.clicked.connect(self._show_log)
+        open_button = QPushButton("打开输出目录")
+        open_button.clicked.connect(self._open_output)
+        actions.addWidget(self.start_button, 1)
+        actions.addWidget(self.cancel_button)
+        actions.addWidget(log_button)
+        actions.addWidget(open_button)
+        layout.addLayout(actions)
+        self.summary = QLabel("")
+        self.summary.setObjectName("muted")
+        layout.addWidget(self.summary)
+        return card
 
     # ---------- 状态 ----------
 
     def _restore(self) -> None:
+        """恢复上次设置，并接收命令行/拖到 exe 上的目录。"""
         if self.settings.output_directory:
             self.output_edit.setText(self.settings.output_directory)
         self.delete_check.setChecked(self.settings.delete_source)
@@ -235,14 +247,16 @@ class MainWindow(QMainWindow):
         self._refresh_summary()
 
     def _refresh_tools(self) -> None:
+        """解析工具路径并显示状态。"""
         for kind, key in (("7z", "sevenzip_path"), ("rar", "rar_path")):
             try:
                 self._tools[kind] = resolve_tool(kind, getattr(self.settings, key))
-            except ValueError:
+            except ValueError as error:
                 self._tools[kind] = None
+                self.summary.setText(str(error))
         self.tool_label.setText(
-            f"7-Zip {'✓' if self._tools['7z'] else '✗'}   "
-            f"WinRAR {'✓' if self._tools['rar'] else '✗'}",
+            f"7-Zip {'已就绪' if self._tools['7z'] else '未找到'}　"
+            f"WinRAR {'已就绪' if self._tools['rar'] else '未找到'}",
         )
 
     def _open_settings(self) -> None:
@@ -254,26 +268,23 @@ class MainWindow(QMainWindow):
         self._refresh_tools()
 
     def _refresh_summary(self) -> None:
-        self.summary.setText(f"{len(self._entries)} 个任务")
+        count = len(self._rows)
+        self.empty_hint.setVisible(count == 0)
+        self.list.setVisible(count > 0)
+        self.summary.setText(f"{count} 个任务" if count else "还没有任务")
 
     def _output_changed(self, text: str) -> None:
         self.settings.output_directory = text.strip()
-        self._refresh_targets()
 
     def _delete_changed(self, checked: bool) -> None:
         self.settings.delete_source = checked
 
-    def _refresh_targets(self) -> None:
-        base = self.output_edit.text().strip()
-        for entry in self._entries:
-            target = str(Path(base) / entry.path.name) if base else "（待选择输出目录）"
-            entry.target.setText(target)
-
     # ---------- 任务列表 ----------
 
-    def add_paths(self, paths: list[Path]) -> None:
-        """添加目录任务，重复路径只保留一次。"""
-        existing = {entry.path.resolve() for entry in self._entries}
+    def add_paths(self, paths: list[Path]) -> bool:
+        """添加目录任务，重复路径只保留一次，返回是否有变化。"""
+        existing = {row.path.resolve() for row in self._rows}
+        added = False
         for path in paths:
             if not path.is_dir():
                 continue
@@ -282,45 +293,38 @@ class MainWindow(QMainWindow):
                 continue
             existing.add(resolved)
             self._append_row(Path(path))
+            added = True
         self._refresh_summary()
-        self._refresh_targets()
+        return added
 
     def _append_row(self, path: Path) -> None:
-        row = self.table.rowCount()
-        self.table.insertRow(row)
-        name = QTableWidgetItem(path.name)
-        name.setToolTip(str(path))
-        self.table.setItem(row, 0, name)
-        status = QTableWidgetItem("等待")
-        self.table.setItem(row, 1, status)
-        progress = QProgressBar()
-        progress.setRange(0, 1)
-        progress.setValue(0)
-        progress.setTextVisible(False)
-        self.table.setCellWidget(row, 2, progress)
-        target = QTableWidgetItem("")
-        target.setToolTip(str(path))
-        self.table.setItem(row, 3, target)
-        self._entries.append(TaskEntry(path, status, progress, target))
+        item = QListWidgetItem()
+        item.setSizeHint(QSize(0, ROW_HEIGHT))
+        self.list.addItem(item)
+        row = TaskRow(path, lambda: self._remove_row(item))
+        self.list.setItemWidget(item, row)
+        self._rows.append(row)
+
+    def _remove_row(self, item: QListWidgetItem) -> None:
+        row = self.list.itemWidget(item)
+        index = self.list.row(item)
+        if index < 0:
+            return
+        self.list.takeItem(index)
+        if isinstance(row, TaskRow):
+            self._rows = [entry for entry in self._rows if entry is not row]
+        self._refresh_summary()
 
     def _choose_sources(self) -> None:
         selected = QFileDialog.getExistingDirectory(self, "选择 1 级目录")
         if selected:
             self.add_paths([Path(selected)])
 
-    def _remove_selected(self) -> None:
-        rows = sorted({index.row() for index in self.table.selectedIndexes()}, reverse=True)
-        for row in rows:
-            self.table.removeRow(row)
-            if 0 <= row < len(self._entries):
-                self._entries.pop(row)
-        self._refresh_summary()
-
     def _clear(self) -> None:
         if self._worker is not None:
             return
-        self.table.setRowCount(0)
-        self._entries.clear()
+        self.list.clear()
+        self._rows.clear()
         self._refresh_summary()
 
     def _choose_output(self) -> None:
@@ -340,7 +344,7 @@ class MainWindow(QMainWindow):
     def _start(self) -> None:
         if self._worker is not None:
             return
-        if not self._entries:
+        if not self._rows:
             QMessageBox.information(self, "还没有任务", "先把 1 级目录拖进来。")
             return
         output_text = self.output_edit.text().strip()
@@ -348,7 +352,7 @@ class MainWindow(QMainWindow):
             QMessageBox.information(self, "缺少输出目录", "请先选择解压输出目录。")
             return
         output = Path(output_text)
-        plans = plan_sources([entry.path for entry in self._entries], output)
+        plans = plan_sources([row.path for row in self._rows], output)
         formats = {job.archive_format for plan in plans for job in plan.jobs}
         if not formats:
             QMessageBox.information(self, "没有压缩包", "所选目录里没有找到可解压的压缩包。")
@@ -371,10 +375,10 @@ class MainWindow(QMainWindow):
         self.log_dialog.clear()
         self._error = ""
         self._cancel_requested = False
-        for entry, plan in zip(self._entries, plans, strict=False):
-            entry.progress.setRange(0, max(len(plan.jobs), 1))
-            entry.progress.setValue(0)
-            entry.status.setText(f"等待（{len(plan.jobs)} 个包）" if plan.jobs else "没有压缩包")
+        for row, plan in zip(self._rows, plans, strict=False):
+            row.waiting()
+            if plan.jobs:
+                row.running(len(plan.jobs))
         self._set_running(True)
         worker = ExtractWorker(
             plans, output, dict(self._tools), self.delete_check.isChecked(), self,
@@ -391,34 +395,17 @@ class MainWindow(QMainWindow):
     def _cancel(self) -> None:
         if self._worker is not None:
             self._cancel_requested = True
-            self.stop_action.setEnabled(False)
+            self.cancel_button.setEnabled(False)
             self.summary.setText("正在停止…")
             self._worker.cancel()
 
     def _row_progress(self, index: int, done: int, total: int) -> None:
-        if 0 <= index < len(self._entries):
-            entry = self._entries[index]
-            entry.progress.setRange(0, max(total, 1))
-            entry.progress.setValue(done)
-            entry.status.setText(f"解压中 {done}/{max(total, 1)}")
+        if 0 <= index < len(self._rows):
+            self._rows[index].progress_changed(done, total)
 
     def _row_finished(self, index: int, outcome: Outcome) -> None:
-        if not 0 <= index < len(self._entries):
-            return
-        entry = self._entries[index]
-        if outcome.skipped:
-            entry.status.setText("没有压缩包")
-            entry.progress.setRange(0, 1)
-            entry.progress.setValue(0)
-            return
-        text = f"完成 {outcome.archives} 个包 / {outcome.entries} 个条目"
-        if outcome.removed:
-            text += f"，已删源 {outcome.removed}"
-        if outcome.failures:
-            text += f"，失败 {len(outcome.failures)}"
-        entry.status.setText(text)
-        entry.progress.setRange(0, 1)
-        entry.progress.setValue(1)
+        if 0 <= index < len(self._rows):
+            self._rows[index].finished(outcome)
 
     def _worker_failed(self, message: str) -> None:
         self._error = message
@@ -426,9 +413,9 @@ class MainWindow(QMainWindow):
     def _finished(self, total: Outcome) -> None:
         self._set_running(False)
         if self._cancel_requested:
-            for entry in self._entries:
-                if entry.status.text().startswith("解压中"):
-                    entry.status.setText("已停止")
+            for row in self._rows:
+                if row.status.text().startswith("解压中"):
+                    row.cancelled()
             self.summary.setText("已停止")
             return
         if self._error:
@@ -450,20 +437,27 @@ class MainWindow(QMainWindow):
         self._worker = None
 
     def _set_running(self, running: bool) -> None:
-        for action in (
-            self.add_action, self.remove_action, self.clear_action, self.start_action,
-        ):
-            action.setEnabled(not running)
-        self.stop_action.setEnabled(running)
+        for row in self._rows:
+            row.setEnabled(not running)
+        self.list.setEnabled(not running)
         self.output_edit.setEnabled(not running)
         self.delete_check.setEnabled(not running)
+        self.start_button.setVisible(not running)
+        self.cancel_button.setVisible(running)
+        self.cancel_button.setEnabled(True)
+        if not running:
+            self.start_button.setEnabled(True)
 
-    def _open_row_output(self, item: QTableWidgetItem) -> None:
+    def _open_output(self) -> None:
+        text = self.output_edit.text().strip()
+        if text:
+            QDesktopServices.openUrl(QUrl.fromLocalFile(text))
+
+    def _open_row_output(self, item: QListWidgetItem) -> None:
+        row = self.list.itemWidget(item)
         base = self.output_edit.text().strip()
-        row = item.row()
-        if base and 0 <= row < len(self._entries):
-            path = Path(base) / self._entries[row].path.name
-            QDesktopServices.openUrl(QUrl.fromLocalFile(str(path)))
+        if isinstance(row, TaskRow) and base:
+            QDesktopServices.openUrl(QUrl.fromLocalFile(str(Path(base) / row.path.name)))
 
     # ---------- 拖放 ----------
 

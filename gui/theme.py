@@ -1,66 +1,79 @@
-"""界面配色：Windows 经典工具风格（7-Zip 式），浅灰底、方角、紧凑控件。"""
+"""界面配色：Windows 11 浅色原生风格（白底、圆角、细分隔线、蓝色主按钮）。"""
 
 from __future__ import annotations
 
 from PySide6.QtWidgets import QApplication
 
-WINDOW = "#F0F0F0"
-PANEL = "#F5F5F5"
-LIST = "#FFFFFF"
-BORDER = "#A0A0A0"
-SOFT_BORDER = "#C8C8C8"
-TEXT = "#1A1A1A"
-MUTED = "#5A5A5A"
-SELECTION = "#CCE8FF"
-ACCENT = "#2F5D8C"
+BACKGROUND = "#F3F3F3"
+SURFACE = "#FFFFFF"
+HOVER = "#F7F7F7"
+BORDER = "#E1E1E1"
+CONTROL_BORDER = "#D6D6D6"
+TEXT = "#1B1B1B"
+MUTED = "#616161"
+ACCENT = "#0067C0"
+ACCENT_HOVER = "#1975C5"
+ACCENT_PRESSED = "#005A9E"
 
 STYLE_SHEET = f"""
-QWidget {{ color: {TEXT}; font-family: "Microsoft YaHei UI"; font-size: 12px; }}
-QMainWindow, QWidget#root {{ background: {WINDOW}; }}
-QMenuBar {{ background: {WINDOW}; border-bottom: 1px solid {SOFT_BORDER}; }}
-QMenuBar::item {{ padding: 3px 8px; background: transparent; }}
-QMenuBar::item:selected {{ background: {SELECTION}; }}
-QMenu {{ background: {LIST}; border: 1px solid {BORDER}; }}
-QMenu::item {{ padding: 4px 24px 4px 20px; }}
-QMenu::item:selected {{ background: {SELECTION}; color: {TEXT}; }}
-QToolBar {{ background: {PANEL}; border-bottom: 1px solid {BORDER}; spacing: 2px; padding: 2px; }}
-QToolBar::separator {{ width: 1px; background: {SOFT_BORDER}; margin: 4px 6px; }}
-QToolButton {{ padding: 3px 8px; border: 1px solid transparent; background: transparent; }}
-QToolButton:hover {{ background: #E5F1FB; border: 1px solid {SOFT_BORDER}; }}
-QToolButton:pressed {{ background: {SELECTION}; border: 1px solid {BORDER}; }}
-QToolButton:disabled {{ color: #9A9A9A; }}
-QTableWidget {{
-    background: {LIST}; border: 1px solid {BORDER}; gridline-color: #E4E4E4;
-    selection-background-color: {SELECTION}; selection-color: {TEXT};
+QWidget {{
+    color: {TEXT};
+    font-family: "Segoe UI Variable Text", "Microsoft YaHei UI", sans-serif;
+    font-size: 13px;
 }}
-QTableWidget::item {{ padding: 2px 4px; }}
-QHeaderView::section {{
-    background: {PANEL}; color: {TEXT}; padding: 3px 6px;
-    border: none; border-right: 1px solid {SOFT_BORDER};
-    border-bottom: 1px solid {BORDER};
+QMainWindow, QWidget#root, QDialog {{ background: {BACKGROUND}; }}
+QFrame#header {{ background: {SURFACE}; border-bottom: 1px solid {BORDER}; }}
+QLabel#appName {{
+    font-family: "Segoe UI Variable Display", "Microsoft YaHei UI", sans-serif;
+    font-size: 22px; font-weight: 600;
 }}
-QFrame#pathBar {{ background: {PANEL}; border-top: 1px solid {BORDER}; }}
-QLineEdit {{ background: {LIST}; border: 1px solid {BORDER}; padding: 3px 4px; }}
-QLineEdit:disabled {{ background: {WINDOW}; color: {MUTED}; }}
+QLabel#subtitle, QLabel#muted {{ color: {MUTED}; }}
+QLabel#sectionTitle {{ font-size: 15px; font-weight: 600; }}
+QLabel#rowTitle {{ font-weight: 600; }}
+QFrame#card {{ background: {SURFACE}; border: 1px solid {BORDER}; border-radius: 8px; }}
+QListWidget#taskList {{
+    background: {SURFACE}; border: 1px solid {BORDER}; border-radius: 8px; padding: 4px;
+    outline: none;
+}}
+QListWidget#taskList::item {{ border-radius: 6px; margin: 2px; }}
+QListWidget#taskList::item:hover {{ background: {HOVER}; }}
+QListWidget#taskList::item:selected {{ background: #E8F1FB; }}
 QPushButton {{
-    background: {PANEL}; border: 1px solid {BORDER}; padding: 3px 12px; min-height: 18px;
+    background: {SURFACE}; border: 1px solid {CONTROL_BORDER}; border-radius: 5px;
+    padding: 6px 14px; min-height: 18px;
 }}
-QPushButton:hover {{ background: #E5F1FB; }}
-QPushButton:pressed {{ background: {SELECTION}; }}
-QPushButton:disabled {{ color: #9A9A9A; background: {WINDOW}; }}
-QCheckBox {{ spacing: 6px; }}
+QPushButton:hover {{ background: {HOVER}; }}
+QPushButton:pressed {{ background: #EFEFEF; }}
+QPushButton:disabled {{ color: #A0A0A0; background: #FAFAFA; border-color: #EBEBEB; }}
+QPushButton#primary {{
+    background: {ACCENT}; color: #FFFFFF; border: none; font-weight: 600;
+    padding: 8px 18px;
+}}
+QPushButton#primary:hover {{ background: {ACCENT_HOVER}; }}
+QPushButton#primary:pressed {{ background: {ACCENT_PRESSED}; }}
+QPushButton#primary:disabled {{ background: #C9C9C9; color: #FFFFFF; }}
+QLineEdit {{
+    background: {SURFACE}; border: 1px solid {CONTROL_BORDER}; border-radius: 5px;
+    padding: 5px 8px;
+}}
+QLineEdit:focus {{ border: 1px solid {ACCENT}; }}
+QLineEdit:disabled {{ background: #FAFAFA; color: #A0A0A0; }}
+QCheckBox {{ spacing: 8px; }}
 QProgressBar {{
-    border: 1px solid {BORDER}; background: {LIST}; text-align: center; max-height: 14px;
+    border: none; background: #E9E9E9; border-radius: 3px;
+    min-height: 6px; max-height: 6px;
 }}
-QProgressBar::chunk {{ background: #4F94CD; }}
-QStatusBar {{ background: {PANEL}; border-top: 1px solid {SOFT_BORDER}; }}
-QStatusBar::item {{ border: none; }}
-QLabel#statusPanel {{ border: 1px solid {SOFT_BORDER}; padding: 1px 6px; background: {PANEL}; }}
+QProgressBar::chunk {{ background: {ACCENT}; border-radius: 3px; }}
+QScrollBar:vertical {{ background: transparent; width: 10px; margin: 2px; }}
+QScrollBar::handle:vertical {{ background: #C9C9C9; border-radius: 5px; min-height: 24px; }}
+QScrollBar::handle:vertical:hover {{ background: #A8A8A8; }}
+QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {{ height: 0; }}
+QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {{ background: transparent; }}
 """
 
 
 def apply_theme(app: QApplication) -> None:
-    """应用经典工具风格。"""
+    """应用 Win11 浅色风格。"""
     app.setStyleSheet(STYLE_SHEET)
 
 
