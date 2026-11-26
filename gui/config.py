@@ -20,6 +20,7 @@ class Settings:
     delete_source: bool = False
     sevenzip_path: str = ""
     rar_path: str = ""
+    theme: str = "system"
 
 
 def load_settings(path: Path = SETTINGS_PATH) -> Settings:

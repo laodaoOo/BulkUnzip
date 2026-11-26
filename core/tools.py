@@ -68,10 +68,10 @@ def resolve_tool(kind: str, configured: str) -> Path | None:
 
 
 def extract_command(tool: Path, kind: str, archive: Path, target: Path) -> list[str]:
-    """构造解压到 target 的命令行参数。"""
+    """构造解压到 target 的命令行参数，并让工具输出百分比进度。"""
     if kind == "rar":
-        return [str(tool), "x", "-y", "-o+", "-ibck", str(archive), str(target) + os.sep]
-    return [str(tool), "x", "-y", f"-o{target}", str(archive)]
+        return [str(tool), "x", "-y", "-o+", str(archive), str(target) + os.sep]
+    return [str(tool), "x", "-y", "-bsp1", f"-o{target}", str(archive)]
 
 
 __all__ = [

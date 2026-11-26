@@ -8,6 +8,8 @@
 from __future__ import annotations
 
 import os
+import queue
+import re
 import shutil
 import subprocess
 import threading
@@ -23,6 +25,12 @@ WORK_DIRECTORY_NAME = ".bulk_unzip_tmp"
 
 # 视为成功的退出码：0 正常，1 表示部分文件被跳过（工具自身仍算完成）。
 SUCCESS_CODES = {0, 1}
+
+# 工具输出里的百分比（7z 的 -bsp1 与 RAR 的默认进度）。
+_PROGRESS_PATTERN = re.compile(r"(\d{1,3})%")
+
+# 保留的输出尾巴长度，用于失败时取错误行。
+_TAIL_LIMIT = 4000
 
 
 class CancelledError(RuntimeError):
@@ -105,6 +113,7 @@ def extract_source(
     cancel_event: threading.Event | None = None,
     log: Callable[[str], None] | None = None,
     progress: Callable[[int, int], None] | None = None,
+    percent: Callable[[int], None] | None = None,
 ) -> Outcome:
     """解开一个 1 级目录里的全部压缩包，按 2 级目录增量清理。"""
     outcome = Outcome()
@@ -121,13 +130,19 @@ def extract_source(
                 _check_cancel(cancel_event)
                 if progress is not None:
                     progress(done, total)
+                if percent is not None:
+                    percent(0)
                 _log(log, f"解压：{job.archive.name}")
-                success = _run_job(job, work_root, tools, cancel_event, log, outcome)
+                success = _run_job(
+                    job, work_root, tools, cancel_event, log, outcome, percent,
+                )
                 done += 1
                 if progress is not None:
                     progress(done, total)
                 if success:
                     outcome.archives += 1
+                    if percent is not None:
+                        percent(100)
                 else:
                     failed = True
             if delete_source and not failed:
@@ -146,6 +161,7 @@ def _run_job(
     cancel_event: threading.Event | None,
     log: Callable[[str], None] | None,
     outcome: Outcome,
+    percent: Callable[[int], None] | None = None,
 ) -> bool:
     """解压单个压缩包并并入目标目录；失败只记录。"""
     tool = tools.get("7z" if job.archive_format in ("zip", "7z") else "rar")
@@ -156,7 +172,8 @@ def _run_job(
     work.mkdir(parents=True, exist_ok=True)
     try:
         code, detail = _run_command(
-            extract_command(tool, job.archive_format, job.archive, work), cancel_event,
+            extract_command(tool, job.archive_format, job.archive, work),
+            cancel_event, percent,
         )
     except CancelledError:
         raise
@@ -195,26 +212,63 @@ def _remove_folder_sources(
 
 
 def _run_command(
-    command: list[str], cancel_event: threading.Event | None,
+    command: list[str],
+    cancel_event: threading.Event | None,
+    percent: Callable[[int], None] | None = None,
 ) -> tuple[int, str]:
-    """运行归档工具；期间响应取消，返回退出码与错误摘要。"""
+    """运行归档工具，边读输出边回报百分比；返回退出码与错误摘要。"""
     flags = getattr(subprocess, "CREATE_NO_WINDOW", 0) if os.name == "nt" else 0
     process = subprocess.Popen(
-        command, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE,
-        creationflags=flags,
+        command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+        bufsize=0, creationflags=flags,
     )
+    stream = process.stdout
+    chunks: queue.Queue[bytes | None] = queue.Queue()
+
+    def pump() -> None:
+        try:
+            while True:
+                piece = stream.read(512) if stream is not None else b""
+                if not piece:
+                    break
+                chunks.put(piece)
+        finally:
+            chunks.put(None)
+
+    threading.Thread(target=pump, daemon=True).start()
+    tail = bytearray()
+    pending = ""
+    last = -1
     while True:
         if cancel_event is not None and cancel_event.is_set():
             process.kill()
-            process.communicate()
+            process.wait()
             raise CancelledError("已取消")
         try:
-            _, error = process.communicate(timeout=0.2)
-            break
-        except subprocess.TimeoutExpired:
+            piece = chunks.get(timeout=0.2)
+        except queue.Empty:
+            if process.poll() is not None:
+                break
             continue
-    text = error.decode("utf-8", "replace").strip() if error else ""
-    return process.returncode, text.splitlines()[-1] if text else ""
+        if piece is None:
+            break
+        tail.extend(piece)
+        if len(tail) > _TAIL_LIMIT:
+            del tail[: len(tail) - _TAIL_LIMIT]
+        if percent is not None:
+            pending += piece.decode("utf-8", "replace")
+            for match in _PROGRESS_PATTERN.finditer(pending):
+                value = int(match.group(1))
+                if 0 <= value <= 100 and value != last:
+                    last = value
+                    percent(value)
+            pending = pending[-8:]
+    process.wait()
+    if stream is not None:
+        stream.close()
+    text = tail.decode("utf-8", "replace")
+    lines = [line.strip() for line in re.split(r"[\r\n]+", text) if line.strip()]
+    return process.returncode, lines[-1] if lines else ""
 
 
 def _missing_tool_message(archive_format: str) -> str:

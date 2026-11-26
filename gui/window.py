@@ -6,9 +6,10 @@ import sys
 from pathlib import Path
 
 from PySide6.QtCore import QSize, Qt, QUrl
-from PySide6.QtGui import QDesktopServices, QIcon
+from PySide6.QtGui import QDesktopServices, QGuiApplication, QIcon
 from PySide6.QtWidgets import (
     QAbstractItemView,
+    QApplication,
     QCheckBox,
     QDialog,
     QFileDialog,
@@ -31,6 +32,7 @@ from gui.config import Settings, load_settings, save_settings
 from gui.dialogs import LogDialog, ResultDialog, SettingsDialog
 from gui.resources import asset_path
 from gui.tasks import ExtractWorker
+from gui.theme import apply_theme, apply_title_bar
 
 ROW_HEIGHT = 68
 
@@ -41,6 +43,9 @@ class TaskRow(QWidget):
     def __init__(self, path: Path, on_remove) -> None:
         super().__init__()
         self.path = path
+        self._done = 0
+        self._total = 1
+        self._percent = 0
         layout = QHBoxLayout(self)
         layout.setContentsMargins(8, 6, 6, 6)
         layout.setSpacing(12)
@@ -54,7 +59,7 @@ class TaskRow(QWidget):
         text.addWidget(self.status)
         layout.addLayout(text, 1)
         self.progress = QProgressBar()
-        self.progress.setRange(0, 1)
+        self.progress.setRange(0, 100)
         self.progress.setValue(0)
         self.progress.setTextVisible(False)
         self.progress.setFixedWidth(150)
@@ -66,27 +71,36 @@ class TaskRow(QWidget):
 
     def waiting(self) -> None:
         """回到等待状态。"""
+        self._done = 0
+        self._total = 1
+        self._percent = 0
         self.status.setText("等待开始")
-        self.progress.setRange(0, 1)
         self.progress.setValue(0)
 
     def running(self, total: int) -> None:
         """开始解压这个目录。"""
-        self.status.setText(f"解压中 0/{total}")
-        self.progress.setRange(0, max(total, 1))
+        self._done = 0
+        self._total = max(total, 1)
+        self._percent = 0
+        self.status.setText(f"解压中 0/{self._total}")
         self.progress.setValue(0)
 
-    def progress_changed(self, done: int, total: int) -> None:
-        """更新解压进度。"""
-        self.status.setText(f"解压中 {done}/{max(total, 1)}")
-        self.progress.setRange(0, max(total, 1))
-        self.progress.setValue(done)
+    def set_count(self, done: int, total: int) -> None:
+        """更新已完成的压缩包个数。"""
+        self._done = done
+        self._total = max(total, 1)
+        self.status.setText(f"解压中 {self._done}/{self._total} · {self._percent}%")
+
+    def set_percent(self, value: int) -> None:
+        """更新当前压缩包的实时百分比。"""
+        self._percent = value
+        self.progress.setValue(value)
+        self.status.setText(f"解压中 {self._done}/{self._total} · {value}%")
 
     def finished(self, outcome: Outcome) -> None:
         """显示完成统计。"""
         if outcome.skipped:
             self.status.setText("没有找到压缩包")
-            self.progress.setRange(0, 1)
             self.progress.setValue(0)
             return
         text = f"完成 {outcome.archives} 个包 / {outcome.entries} 个条目"
@@ -95,8 +109,7 @@ class TaskRow(QWidget):
         if outcome.failures:
             text += f"，失败 {len(outcome.failures)}"
         self.status.setText(text)
-        self.progress.setRange(0, 1)
-        self.progress.setValue(1)
+        self.progress.setValue(100)
 
     def cancelled(self) -> None:
         """取消后的状态。"""
@@ -115,6 +128,11 @@ class MainWindow(QMainWindow):
         self._tools: dict[str, Path | None] = {"7z": None, "rar": None}
         self._error = ""
         self._cancel_requested = False
+        self._resolved_theme = apply_theme(QApplication.instance(), self.settings.theme)
+        hints = QGuiApplication.styleHints()
+        scheme_changed = getattr(hints, "colorSchemeChanged", None)
+        if scheme_changed is not None:
+            scheme_changed.connect(self._system_theme_changed)
         self.setWindowTitle("BulkUnzip")
         self.setWindowIcon(QIcon(str(asset_path("app.ico"))))
         self.resize(960, 640)
@@ -265,7 +283,18 @@ class MainWindow(QMainWindow):
             return
         self.settings = dialog.values()
         save_settings(self.settings)
+        self._apply_theme()
         self._refresh_tools()
+
+    def _apply_theme(self) -> None:
+        """按当前设置重新应用主题与标题栏。"""
+        self._resolved_theme = apply_theme(QApplication.instance(), self.settings.theme)
+        apply_title_bar(self, self._resolved_theme == "dark")
+
+    def _system_theme_changed(self, _scheme: object) -> None:
+        """系统深浅色变化时，跟随模式要立刻刷新。"""
+        if self.settings.theme == "system":
+            self._apply_theme()
 
     def _refresh_summary(self) -> None:
         count = len(self._rows)
@@ -385,6 +414,7 @@ class MainWindow(QMainWindow):
         )
         worker.log.connect(self.log_dialog.append)
         worker.row_progress.connect(self._row_progress)
+        worker.row_percent.connect(self._row_percent)
         worker.row_finished.connect(self._row_finished)
         worker.finished_all.connect(self._finished)
         worker.failed.connect(self._worker_failed)
@@ -401,7 +431,11 @@ class MainWindow(QMainWindow):
 
     def _row_progress(self, index: int, done: int, total: int) -> None:
         if 0 <= index < len(self._rows):
-            self._rows[index].progress_changed(done, total)
+            self._rows[index].set_count(done, total)
+
+    def _row_percent(self, index: int, value: int) -> None:
+        if 0 <= index < len(self._rows):
+            self._rows[index].set_percent(value)
 
     def _row_finished(self, index: int, outcome: Outcome) -> None:
         if 0 <= index < len(self._rows):
@@ -484,6 +518,10 @@ class MainWindow(QMainWindow):
         paths = [Path(url.toLocalFile()) for url in event.mimeData().urls() if url.isLocalFile()]
         self.add_paths(paths)
         event.acceptProposedAction()
+
+    def showEvent(self, event) -> None:
+        super().showEvent(event)
+        apply_title_bar(self, self._resolved_theme == "dark")
 
     def closeEvent(self, event) -> None:
         if self._worker is not None:

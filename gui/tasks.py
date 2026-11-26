@@ -16,6 +16,7 @@ class ExtractWorker(QThread):
     log = Signal(str)
     row_started = Signal(int)
     row_progress = Signal(int, int, int)
+    row_percent = Signal(int, int)
     row_finished = Signal(int, object)
     finished_all = Signal(object)
     failed = Signal(str)
@@ -54,6 +55,7 @@ class ExtractWorker(QThread):
                     progress=lambda done, count, row=index: self.row_progress.emit(
                         row, done, count,
                     ),
+                    percent=lambda value, row=index: self.row_percent.emit(row, value),
                 )
                 total.merge(outcome)
                 self.row_finished.emit(index, outcome)

@@ -14,6 +14,7 @@ from PySide6.QtWidgets import (
     QLineEdit,
     QPlainTextEdit,
     QPushButton,
+    QRadioButton,
     QVBoxLayout,
     QWidget,
 )
@@ -88,14 +89,34 @@ class ResultDialog(QDialog):
 
 
 class SettingsDialog(QDialog):
-    """工具路径：留空自动查找，也可以手动指定。"""
+    """主题与工具路径设置。"""
+
+    #: 主题选项：(设置值, 显示文字)。
+    THEME_OPTIONS = (
+        ("light", "浅色"),
+        ("dark", "深色"),
+        ("system", "使用系统设置"),
+    )
 
     def __init__(self, parent: QWidget | None, settings: Settings) -> None:
         super().__init__(parent)
-        self.setWindowTitle("工具设置 · BulkUnzip")
-        self.resize(560, 240)
+        self.setWindowTitle("设置 · BulkUnzip")
+        self.resize(560, 420)
         self._settings = settings
         layout = QVBoxLayout(self)
+        layout.setSpacing(10)
+        theme_title = QLabel("应用主题")
+        theme_title.setObjectName("rowTitle")
+        layout.addWidget(theme_title)
+        self._theme_buttons: dict[str, QRadioButton] = {}
+        for value, text in self.THEME_OPTIONS:
+            radio = QRadioButton(text)
+            radio.setChecked(settings.theme == value)
+            self._theme_buttons[value] = radio
+            layout.addWidget(radio)
+        if not any(radio.isChecked() for radio in self._theme_buttons.values()):
+            self._theme_buttons["system"].setChecked(True)
+        layout.addSpacing(6)
         hint = QLabel(
             "zip / 7z 需要 7-Zip 的 7z.exe，rar 需要 WinRAR 的 Rar.exe。"
             "留空时自动在程序目录、安装目录和 PATH 中查找。"
@@ -105,6 +126,7 @@ class SettingsDialog(QDialog):
         layout.addWidget(hint)
         self.sevenzip_edit = self._path_row(layout, "7-Zip", settings.sevenzip_path)
         self.rar_edit = self._path_row(layout, "WinRAR", settings.rar_path)
+        layout.addStretch(1)
         buttons = QHBoxLayout()
         detect = QPushButton("自动检测")
         detect.clicked.connect(self._detect)
@@ -147,11 +169,16 @@ class SettingsDialog(QDialog):
         self.rar_edit.setText(str(rar) if rar else "")
 
     def values(self) -> Settings:
+        theme = next(
+            (value for value, radio in self._theme_buttons.items() if radio.isChecked()),
+            "system",
+        )
         return Settings(
             output_directory=self._settings.output_directory,
             delete_source=self._settings.delete_source,
             sevenzip_path=self.sevenzip_edit.text().strip(),
             rar_path=self.rar_edit.text().strip(),
+            theme=theme,
         )
 
 

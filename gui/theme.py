@@ -1,80 +1,212 @@
-"""界面配色：Windows 11 浅色原生风格（白底、圆角、细分隔线、蓝色主按钮）。"""
+"""主题：浅色 / 深色 / 跟随系统，含调色板与 Windows 深色标题栏。"""
 
 from __future__ import annotations
 
-from PySide6.QtWidgets import QApplication
+import ctypes
+import sys
+from string import Template
 
-BACKGROUND = "#F3F3F3"
-SURFACE = "#FFFFFF"
-HOVER = "#F7F7F7"
-BORDER = "#E1E1E1"
-CONTROL_BORDER = "#D6D6D6"
-TEXT = "#1B1B1B"
-MUTED = "#616161"
-ACCENT = "#0067C0"
-ACCENT_HOVER = "#1975C5"
-ACCENT_PRESSED = "#005A9E"
+from PySide6.QtCore import Qt
+from PySide6.QtGui import QColor, QGuiApplication, QPalette
+from PySide6.QtWidgets import QApplication, QWidget
 
-STYLE_SHEET = f"""
-QWidget {{
-    color: {TEXT};
+# 可选的主题设置。
+THEME_MODES = ("light", "dark", "system")
+
+LIGHT = {
+    "background": "#F3F3F3",
+    "surface": "#FFFFFF",
+    "hover": "#F7F7F7",
+    "pressed": "#EFEFEF",
+    "border": "#E1E1E1",
+    "control_border": "#D6D6D6",
+    "text": "#1B1B1B",
+    "muted": "#616161",
+    "accent": "#0067C0",
+    "on_accent": "#FFFFFF",
+    "accent_hover": "#1975C5",
+    "accent_pressed": "#005A9E",
+    "selection": "#E8F1FB",
+    "track": "#E9E9E9",
+    "scroll": "#C9C9C9",
+    "scroll_hover": "#A8A8A8",
+    "disabled_text": "#A0A0A0",
+    "disabled_bg": "#FAFAFA",
+    "disabled_border": "#EBEBEB",
+    "primary_disabled": "#C9C9C9",
+}
+
+DARK = {
+    "background": "#202020",
+    "surface": "#2B2B2B",
+    "hover": "#333333",
+    "pressed": "#3A3A3A",
+    "border": "#3A3A3A",
+    "control_border": "#4A4A4A",
+    "text": "#F2F2F2",
+    "muted": "#A8A8A8",
+    "accent": "#4CC2FF",
+    "on_accent": "#0B1B26",
+    "accent_hover": "#5ACBFF",
+    "accent_pressed": "#3AA9E0",
+    "selection": "#2D4A63",
+    "track": "#3A3A3A",
+    "scroll": "#5A5A5A",
+    "scroll_hover": "#6E6E6E",
+    "disabled_text": "#6E6E6E",
+    "disabled_bg": "#262626",
+    "disabled_border": "#333333",
+    "primary_disabled": "#3A3A3A",
+}
+
+_TEMPLATE = Template("""
+QWidget {
+    color: $text;
     font-family: "Segoe UI Variable Text", "Microsoft YaHei UI", sans-serif;
     font-size: 13px;
-}}
-QMainWindow, QWidget#root, QDialog {{ background: {BACKGROUND}; }}
-QFrame#header {{ background: {SURFACE}; border-bottom: 1px solid {BORDER}; }}
-QLabel#appName {{
+}
+QMainWindow, QWidget#root, QDialog, QMessageBox { background: $background; }
+QFrame#header { background: $surface; border-bottom: 1px solid $border; }
+QLabel#appName {
     font-family: "Segoe UI Variable Display", "Microsoft YaHei UI", sans-serif;
     font-size: 22px; font-weight: 600;
-}}
-QLabel#subtitle, QLabel#muted {{ color: {MUTED}; }}
-QLabel#sectionTitle {{ font-size: 15px; font-weight: 600; }}
-QLabel#rowTitle {{ font-weight: 600; }}
-QFrame#card {{ background: {SURFACE}; border: 1px solid {BORDER}; border-radius: 8px; }}
-QListWidget#taskList {{
-    background: {SURFACE}; border: 1px solid {BORDER}; border-radius: 8px; padding: 4px;
-    outline: none;
-}}
-QListWidget#taskList::item {{ border-radius: 6px; margin: 2px; }}
-QListWidget#taskList::item:hover {{ background: {HOVER}; }}
-QListWidget#taskList::item:selected {{ background: #E8F1FB; }}
-QPushButton {{
-    background: {SURFACE}; border: 1px solid {CONTROL_BORDER}; border-radius: 5px;
+}
+QLabel#subtitle, QLabel#muted { color: $muted; }
+QLabel#sectionTitle { font-size: 15px; font-weight: 600; }
+QLabel#rowTitle { font-weight: 600; }
+QFrame#card { background: $surface; border: 1px solid $border; border-radius: 8px; }
+QListWidget#taskList {
+    background: $surface; border: 1px solid $border; border-radius: 8px;
+    padding: 4px; outline: none;
+}
+QListWidget#taskList::item { border-radius: 6px; margin: 2px; }
+QListWidget#taskList::item:hover { background: $hover; }
+QListWidget#taskList::item:selected { background: $selection; }
+QPushButton {
+    background: $surface; border: 1px solid $control_border; border-radius: 5px;
     padding: 6px 14px; min-height: 18px;
-}}
-QPushButton:hover {{ background: {HOVER}; }}
-QPushButton:pressed {{ background: #EFEFEF; }}
-QPushButton:disabled {{ color: #A0A0A0; background: #FAFAFA; border-color: #EBEBEB; }}
-QPushButton#primary {{
-    background: {ACCENT}; color: #FFFFFF; border: none; font-weight: 600;
+}
+QPushButton:hover { background: $hover; }
+QPushButton:pressed { background: $pressed; }
+QPushButton:disabled {
+    color: $disabled_text; background: $disabled_bg; border-color: $disabled_border;
+}
+QPushButton#primary {
+    background: $accent; color: $on_accent; border: none; font-weight: 600;
     padding: 8px 18px;
-}}
-QPushButton#primary:hover {{ background: {ACCENT_HOVER}; }}
-QPushButton#primary:pressed {{ background: {ACCENT_PRESSED}; }}
-QPushButton#primary:disabled {{ background: #C9C9C9; color: #FFFFFF; }}
-QLineEdit {{
-    background: {SURFACE}; border: 1px solid {CONTROL_BORDER}; border-radius: 5px;
-    padding: 5px 8px;
-}}
-QLineEdit:focus {{ border: 1px solid {ACCENT}; }}
-QLineEdit:disabled {{ background: #FAFAFA; color: #A0A0A0; }}
-QCheckBox {{ spacing: 8px; }}
-QProgressBar {{
-    border: none; background: #E9E9E9; border-radius: 3px;
+}
+QPushButton#primary:hover { background: $accent_hover; }
+QPushButton#primary:pressed { background: $accent_pressed; }
+QPushButton#primary:disabled { background: $primary_disabled; color: $disabled_text; }
+QLineEdit {
+    background: $surface; border: 1px solid $control_border; border-radius: 5px;
+    padding: 5px 8px; selection-background-color: $accent; selection-color: $on_accent;
+}
+QLineEdit:focus { border: 1px solid $accent; }
+QLineEdit:disabled { background: $disabled_bg; color: $disabled_text; }
+QPlainTextEdit {
+    background: $surface; color: $text; border: 1px solid $border;
+    border-radius: 6px; selection-background-color: $accent; selection-color: $on_accent;
+}
+QCheckBox, QRadioButton { spacing: 8px; }
+QProgressBar {
+    border: none; background: $track; border-radius: 3px;
     min-height: 6px; max-height: 6px;
-}}
-QProgressBar::chunk {{ background: {ACCENT}; border-radius: 3px; }}
-QScrollBar:vertical {{ background: transparent; width: 10px; margin: 2px; }}
-QScrollBar::handle:vertical {{ background: #C9C9C9; border-radius: 5px; min-height: 24px; }}
-QScrollBar::handle:vertical:hover {{ background: #A8A8A8; }}
-QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {{ height: 0; }}
-QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {{ background: transparent; }}
-"""
+}
+QProgressBar::chunk { background: $accent; border-radius: 3px; }
+QMenu { background: $surface; border: 1px solid $border; padding: 4px; }
+QMenu::item { padding: 5px 22px 5px 14px; border-radius: 4px; }
+QMenu::item:selected { background: $selection; }
+QMenu::separator { height: 1px; background: $border; margin: 4px 8px; }
+QToolTip { background: $surface; color: $text; border: 1px solid $border; padding: 4px 6px; }
+QScrollBar:vertical { background: transparent; width: 10px; margin: 2px; }
+QScrollBar::handle:vertical { background: $scroll; border-radius: 5px; min-height: 24px; }
+QScrollBar::handle:vertical:hover { background: $scroll_hover; }
+QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { height: 0; }
+QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical { background: transparent; }
+QStatusBar { background: $surface; border-top: 1px solid $border; }
+""")
+
+# Windows 深色标题栏的属性号（20 适用于 Win10 20H1+，19 为旧版本）。
+_DWMWA_DARK_MODE = 20
+_DWMWA_DARK_MODE_LEGACY = 19
 
 
-def apply_theme(app: QApplication) -> None:
-    """应用 Win11 浅色风格。"""
-    app.setStyleSheet(STYLE_SHEET)
+def system_mode() -> str:
+    """读取系统当前的深浅色。"""
+    hints = QGuiApplication.styleHints()
+    scheme = hints.colorScheme()
+    return "dark" if scheme == Qt.ColorScheme.Dark else "light"
 
 
-__all__ = ["ACCENT", "apply_theme"]
+def resolve_mode(mode: str) -> str:
+    """把设置里的 light / dark / system 解析成实际的深浅色。"""
+    if mode in ("light", "dark"):
+        return mode
+    return system_mode()
+
+
+def build_palette(table: dict[str, str]) -> QPalette:
+    """按主题生成调色板，覆盖未单独写样式的控件。"""
+    palette = QPalette()
+    palette.setColor(QPalette.ColorRole.Window, QColor(table["background"]))
+    palette.setColor(QPalette.ColorRole.WindowText, QColor(table["text"]))
+    palette.setColor(QPalette.ColorRole.Base, QColor(table["surface"]))
+    palette.setColor(QPalette.ColorRole.AlternateBase, QColor(table["hover"]))
+    palette.setColor(QPalette.ColorRole.Text, QColor(table["text"]))
+    palette.setColor(QPalette.ColorRole.Button, QColor(table["surface"]))
+    palette.setColor(QPalette.ColorRole.ButtonText, QColor(table["text"]))
+    palette.setColor(QPalette.ColorRole.BrightText, QColor(table["accent"]))
+    palette.setColor(QPalette.ColorRole.ToolTipBase, QColor(table["surface"]))
+    palette.setColor(QPalette.ColorRole.ToolTipText, QColor(table["text"]))
+    palette.setColor(QPalette.ColorRole.Highlight, QColor(table["accent"]))
+    palette.setColor(QPalette.ColorRole.HighlightedText, QColor(table["on_accent"]))
+    palette.setColor(QPalette.ColorRole.PlaceholderText, QColor(table["muted"]))
+    palette.setColor(QPalette.ColorRole.Link, QColor(table["accent"]))
+    for role in (
+        QPalette.ColorRole.Text,
+        QPalette.ColorRole.WindowText,
+        QPalette.ColorRole.ButtonText,
+    ):
+        palette.setColor(QPalette.ColorGroup.Disabled, role, QColor(table["disabled_text"]))
+    return palette
+
+
+def apply_theme(app: QApplication, mode: str) -> str:
+    """应用主题，返回实际使用的 light / dark。"""
+    resolved = resolve_mode(mode)
+    table = DARK if resolved == "dark" else LIGHT
+    setter = getattr(app.styleHints(), "setColorScheme", None)
+    if setter is not None:
+        try:
+            setter(Qt.ColorScheme.Dark if resolved == "dark" else Qt.ColorScheme.Light)
+        except (TypeError, AttributeError):
+            pass
+    app.setPalette(build_palette(table))
+    app.setStyleSheet(_TEMPLATE.substitute(**table))
+    return resolved
+
+
+def apply_title_bar(window: QWidget, dark: bool) -> None:
+    """Windows 下把窗口标题栏切成深色或浅色。"""
+    if sys.platform != "win32":
+        return
+    try:
+        hwnd = int(window.winId())
+        value = ctypes.c_int(1 if dark else 0)
+        for attribute in (_DWMWA_DARK_MODE, _DWMWA_DARK_MODE_LEGACY):
+            result = ctypes.windll.dwmapi.DwmSetWindowAttribute(
+                hwnd, attribute, ctypes.byref(value), ctypes.sizeof(value),
+            )
+            if result == 0:
+                return
+    except Exception:  # noqa: BLE001 - 非 Windows 或旧系统上失败可忽略
+        return
+
+
+__all__ = [
+    "THEME_MODES",
+    "apply_theme",
+    "apply_title_bar",
+    "resolve_mode",
+]
