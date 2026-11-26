@@ -1,0 +1,44 @@
+"""界面尺寸与字阶常量，供各窗口共用。"""
+
+from __future__ import annotations
+
+PAGE_MARGIN = 24
+GAP_XS = 4
+GAP_S = 8
+GAP_M = 12
+GAP_L = 16
+GAP_XL = 24
+
+RADIUS_CONTROL = 4
+RADIUS_PANEL = 8
+
+CONTROL_HEIGHT = 32
+PRIMARY_HEIGHT = 36
+ICON_BUTTON = 28
+TASK_ROW_HEIGHT = 44
+STATUS_DOT = 8
+
+FONT_DISPLAY = 20
+FONT_TITLE = 15
+FONT_BODY = 13
+FONT_CAPTION = 12
+
+__all__ = [
+    "CONTROL_HEIGHT",
+    "FONT_BODY",
+    "FONT_CAPTION",
+    "FONT_DISPLAY",
+    "FONT_TITLE",
+    "GAP_L",
+    "GAP_M",
+    "GAP_S",
+    "GAP_XL",
+    "GAP_XS",
+    "ICON_BUTTON",
+    "PAGE_MARGIN",
+    "PRIMARY_HEIGHT",
+    "RADIUS_CONTROL",
+    "RADIUS_PANEL",
+    "STATUS_DOT",
+    "TASK_ROW_HEIGHT",
+]

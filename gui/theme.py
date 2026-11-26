@@ -18,16 +18,21 @@ THEME_MODES = ("light", "dark", "system")
 LIGHT = {
     "background": "#F3F3F3",
     "surface": "#FFFFFF",
+    "surface_alt": "#FAFAFA",
     "hover": "#F7F7F7",
     "pressed": "#EFEFEF",
-    "border": "#E1E1E1",
-    "control_border": "#D6D6D6",
-    "text": "#1B1B1B",
-    "muted": "#616161",
+    "stroke": "#E5E5E5",
+    "control_stroke": "#D6D6D6",
+    "text": "#1A1A1A",
+    "text_secondary": "#5D5D5D",
+    "text_tertiary": "#8A8A8A",
     "accent": "#0067C0",
     "on_accent": "#FFFFFF",
     "accent_hover": "#1975C5",
     "accent_pressed": "#005A9E",
+    "success": "#0F7B0F",
+    "warning": "#9D5D00",
+    "danger": "#C42B1C",
     "selection": "#E8F1FB",
     "track": "#E9E9E9",
     "scroll": "#C9C9C9",
@@ -42,16 +47,21 @@ LIGHT = {
 DARK = {
     "background": "#202020",
     "surface": "#2B2B2B",
+    "surface_alt": "#272727",
     "hover": "#333333",
     "pressed": "#3A3A3A",
-    "border": "#3A3A3A",
-    "control_border": "#4A4A4A",
+    "stroke": "#3A3A3A",
+    "control_stroke": "#4A4A4A",
     "text": "#F2F2F2",
-    "muted": "#A8A8A8",
+    "text_secondary": "#C8C8C8",
+    "text_tertiary": "#9A9A9A",
     "accent": "#4CC2FF",
     "on_accent": "#0B1B26",
     "accent_hover": "#5ACBFF",
     "accent_pressed": "#3AA9E0",
+    "success": "#6CCB5F",
+    "warning": "#FCE100",
+    "danger": "#FF99A4",
     "selection": "#2D4A63",
     "track": "#3A3A3A",
     "scroll": "#5A5A5A",
@@ -69,48 +79,95 @@ QWidget {
     font-family: "Segoe UI Variable Text", "Microsoft YaHei UI", sans-serif;
     font-size: 13px;
 }
-QMainWindow, QWidget#root, QDialog, QMessageBox { background: $background; }
-QFrame#header { background: $surface; border-bottom: 1px solid $border; }
+QMainWindow, QWidget#root, QDialog { background: $background; }
+QMessageBox { background: $surface; min-width: 380px; }
+QMessageBox QLabel { font-size: 13px; }
+QMessageBox QPushButton { min-width: 88px; }
+
 QLabel#appName {
     font-family: "Segoe UI Variable Display", "Microsoft YaHei UI", sans-serif;
-    font-size: 22px; font-weight: 600;
+    font-size: 20px; font-weight: 600;
 }
-QLabel#subtitle, QLabel#muted { color: $muted; }
+QLabel#subtitle { color: $text_secondary; font-size: 12px; }
 QLabel#sectionTitle { font-size: 15px; font-weight: 600; }
-QLabel#rowTitle { font-weight: 600; }
-QFrame#card { background: $surface; border: 1px solid $border; border-radius: 8px; }
-QListWidget#taskList {
-    background: $surface; border: 1px solid $border; border-radius: 6px;
-    padding: 2px; outline: none;
+QLabel#dialogTitle { font-size: 20px; font-weight: 600; }
+QLabel#fieldLabel { color: $text_secondary; font-size: 12px; }
+QLabel#caption, QLabel#muted { color: $text_secondary; font-size: 12px; }
+QLabel#rowName { font-size: 13px; font-weight: 600; }
+QLabel#rowState { color: $text_secondary; font-size: 12px; }
+
+QFrame#panel { background: $surface; border: 1px solid $stroke; border-radius: 8px; }
+QFrame#emptyState {
+    background: $surface; border: 1px dashed $control_stroke; border-radius: 8px;
 }
+QFrame#separator { background: $stroke; min-height: 1px; max-height: 1px; border: none; }
+QFrame#rowDivider { background: $stroke; min-height: 1px; max-height: 1px; border: none; }
+
+QListWidget#taskList { background: transparent; border: none; outline: none; padding: 0; }
+QListWidget#taskList::item { background: transparent; border: none; }
+QWidget#taskRow { background: transparent; }
+QWidget#taskRowContent:hover { background: $hover; }
+
+QLabel#statusDot { border-radius: 4px; background: $text_tertiary; }
+QLabel#statusDot[state="running"] { background: $accent; }
+QLabel#statusDot[state="paused"] { background: $warning; }
+QLabel#statusDot[state="done"] { background: $success; }
+QLabel#statusDot[state="failed"] { background: $danger; }
+
 QPushButton {
-    background: $surface; border: 1px solid $control_border; border-radius: 5px;
-    padding: 6px 14px; min-height: 18px;
+    background: $surface; border: 1px solid $control_stroke; border-radius: 4px;
+    padding: 0 14px; min-height: 30px;
 }
 QPushButton:hover { background: $hover; }
 QPushButton:pressed { background: $pressed; }
+QPushButton:focus { border: 2px solid $accent; }
 QPushButton:disabled {
     color: $disabled_text; background: $disabled_bg; border-color: $disabled_border;
 }
 QPushButton#primary {
-    background: $accent; color: $on_accent; border: none; font-weight: 600;
-    padding: 8px 18px;
+    background: $accent; color: $on_accent; border: 1px solid transparent;
+    font-weight: 600; min-height: 34px; padding: 0 18px;
 }
 QPushButton#primary:hover { background: $accent_hover; }
 QPushButton#primary:pressed { background: $accent_pressed; }
+QPushButton#primary:focus { border: 2px solid $on_accent; }
 QPushButton#primary:disabled { background: $primary_disabled; color: $disabled_text; }
+QPushButton#subtle {
+    background: transparent; border: 1px solid transparent; color: $text_secondary;
+}
+QPushButton#subtle:hover { background: $hover; color: $text; }
+QPushButton#subtle:pressed { background: $pressed; }
+QPushButton#danger {
+    background: $surface; border: 1px solid $control_stroke; color: $danger;
+}
+QPushButton#danger:hover { background: $hover; border-color: $danger; }
+QPushButton#danger:pressed { background: $pressed; }
+QPushButton#danger:focus { border: 2px solid $accent; }
+
 QLineEdit {
-    background: $surface; border: 1px solid $control_border; border-radius: 5px;
-    padding: 5px 8px; selection-background-color: $accent; selection-color: $on_accent;
+    background: $surface; border: 1px solid $control_stroke; border-radius: 4px;
+    padding: 0 10px; min-height: 30px;
+    selection-background-color: $accent; selection-color: $on_accent;
 }
 QLineEdit:focus { border: 1px solid $accent; }
 QLineEdit:disabled { background: $disabled_bg; color: $disabled_text; }
+
 QPlainTextEdit {
-    background: $surface; color: $text; border: 1px solid $border;
-    border-radius: 6px; selection-background-color: $accent; selection-color: $on_accent;
+    background: $surface_alt; color: $text; border: 1px solid $stroke;
+    border-radius: 4px; padding: 10px;
+    selection-background-color: $accent; selection-color: $on_accent;
 }
+
 QCheckBox, QRadioButton { spacing: 8px; }
 QCheckBox { padding: 2px 0; min-height: 22px; }
+QRadioButton::indicator {
+    width: 16px; height: 16px; border-radius: 8px;
+    border: 1px solid $check_border; background: $surface;
+}
+QRadioButton::indicator:hover { border-color: $accent; }
+QRadioButton::indicator:checked {
+    border: 5px solid $accent; background: $surface;
+}
 QCheckBox::indicator {
     width: 16px; height: 16px; border-radius: 3px;
     border: 1px solid $check_border; background: $surface;
@@ -119,22 +176,23 @@ QCheckBox::indicator:hover { border-color: $accent; }
 QCheckBox::indicator:checked {
     background: $accent; border-color: $accent; image: url("$check");
 }
+
 QProgressBar {
     border: none; background: $track; border-radius: 3px;
     min-height: 6px; max-height: 6px;
 }
 QProgressBar::chunk { background: $accent; border-radius: 3px; }
-QMenu { background: $surface; border: 1px solid $border; padding: 4px; }
+
+QMenu { background: $surface; border: 1px solid $stroke; padding: 4px; }
 QMenu::item { padding: 5px 22px 5px 14px; border-radius: 4px; }
 QMenu::item:selected { background: $selection; }
-QMenu::separator { height: 1px; background: $border; margin: 4px 8px; }
-QToolTip { background: $surface; color: $text; border: 1px solid $border; padding: 4px 6px; }
+QMenu::separator { height: 1px; background: $stroke; margin: 4px 8px; }
+QToolTip { background: $surface; color: $text; border: 1px solid $stroke; padding: 4px 6px; }
 QScrollBar:vertical { background: transparent; width: 10px; margin: 2px; }
 QScrollBar::handle:vertical { background: $scroll; border-radius: 5px; min-height: 24px; }
 QScrollBar::handle:vertical:hover { background: $scroll_hover; }
 QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { height: 0; }
 QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical { background: transparent; }
-QStatusBar { background: $surface; border-top: 1px solid $border; }
 """)
 
 # Windows 深色标题栏的属性号（20 适用于 Win10 20H1+，19 为旧版本）。
@@ -171,7 +229,7 @@ def build_palette(table: dict[str, str]) -> QPalette:
     palette.setColor(QPalette.ColorRole.ToolTipText, QColor(table["text"]))
     palette.setColor(QPalette.ColorRole.Highlight, QColor(table["accent"]))
     palette.setColor(QPalette.ColorRole.HighlightedText, QColor(table["on_accent"]))
-    palette.setColor(QPalette.ColorRole.PlaceholderText, QColor(table["muted"]))
+    palette.setColor(QPalette.ColorRole.PlaceholderText, QColor(table["text_tertiary"]))
     palette.setColor(QPalette.ColorRole.Link, QColor(table["accent"]))
     for role in (
         QPalette.ColorRole.Text,

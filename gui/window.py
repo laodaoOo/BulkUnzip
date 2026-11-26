@@ -1,4 +1,4 @@
-"""主窗口：拖入 1 级目录，逐行解压到输出目录（Windows 11 浅色风格）。"""
+"""主窗口：拖入 1 级目录，逐行解压到输出目录。"""
 
 from __future__ import annotations
 
@@ -21,7 +21,6 @@ from PySide6.QtWidgets import (
     QMainWindow,
     QMessageBox,
     QPushButton,
-    QSizePolicy,
     QVBoxLayout,
     QWidget,
 )
@@ -33,37 +32,69 @@ from gui.dialogs import LogDialog, ResultDialog, SettingsDialog
 from gui.resources import asset_path
 from gui.tasks import ExtractWorker
 from gui.theme import apply_theme, apply_title_bar
+from gui.tokens import (
+    GAP_L,
+    GAP_M,
+    GAP_S,
+    PAGE_MARGIN,
+    TASK_ROW_HEIGHT,
+)
+from gui.widgets import ElidedLabel, StatusDot
 
 
 class TaskRow(QWidget):
-    """一行任务：目录名、状态、进度与移除。"""
+    """一行任务：状态点、目录名、状态文字与移除。"""
 
-    def __init__(self, path: Path, on_remove) -> None:
+    def __init__(self, path: Path, on_remove, icon_color: str) -> None:
         super().__init__()
+        self.setObjectName("taskRow")
+        self.setAttribute(Qt.WidgetAttribute.WA_Hover, True)
+        self.setFixedHeight(TASK_ROW_HEIGHT)
         self.path = path
         self._done = 0
         self._total = 1
         self._percent = 0
-        layout = QHBoxLayout(self)
-        layout.setContentsMargins(6, 2, 4, 2)
-        layout.setSpacing(6)
-        name = QLabel(path.name)
-        name.setToolTip(str(path))
-        layout.addWidget(name, 1)
+        self._state = "waiting"
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(0, 0, 0, 0)
+        outer.setSpacing(0)
+        content = QWidget()
+        content.setObjectName("taskRowContent")
+        content.setAttribute(Qt.WidgetAttribute.WA_Hover, True)
+        layout = QHBoxLayout(content)
+        layout.setContentsMargins(12, 0, 8, 0)
+        layout.setSpacing(10)
+        self.dot = StatusDot("waiting")
+        layout.addWidget(self.dot, 0, Qt.AlignmentFlag.AlignVCenter)
+        self.name = ElidedLabel(path.name)
+        self.name.setObjectName("rowName")
+        layout.addWidget(self.name, 1)
         self.status = QLabel("等待开始")
-        self.status.setObjectName("muted")
+        self.status.setObjectName("rowState")
+        self.status.setMinimumWidth(150)
+        self.status.setAlignment(
+            Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter,
+        )
         layout.addWidget(self.status)
-        remove = ToolButton(FluentIcon.DELETE)
+        remove = ToolButton()
+        remove.setIcon(FluentIcon.DELETE.icon(color=icon_color))
         remove.setToolTip("移除")
         remove.setCursor(Qt.CursorShape.PointingHandCursor)
         remove.clicked.connect(on_remove)
+        self.remove_button = remove
         layout.addWidget(remove)
+        outer.addWidget(content, 1)
+        self.divider = QFrame()
+        self.divider.setObjectName("rowDivider")
+        outer.addWidget(self.divider)
 
     def waiting(self) -> None:
         """回到等待状态。"""
         self._done = 0
         self._total = 1
         self._percent = 0
+        self._state = "waiting"
+        self.dot.set_state("waiting")
         self.status.setText("等待开始")
         self.status.setToolTip("")
 
@@ -72,6 +103,8 @@ class TaskRow(QWidget):
         self._done = 0
         self._total = max(total, 1)
         self._percent = 0
+        self._state = "running"
+        self.dot.set_state("running")
         self.status.setText(f"解压中 0/{self._total}")
         self.status.setToolTip("")
 
@@ -79,29 +112,62 @@ class TaskRow(QWidget):
         """更新已完成的压缩包个数。"""
         self._done = done
         self._total = max(total, 1)
-        self.status.setText(f"解压中 {self._done}/{self._total} · {self._percent}%")
+        if self._state == "running":
+            self.status.setText(f"解压中 {self._done}/{self._total} · {self._percent}%")
 
     def set_percent(self, value: int) -> None:
         """更新当前压缩包的实时百分比。"""
         self._percent = value
-        self.status.setText(f"解压中 {self._done}/{self._total} · {value}%")
+        if self._state == "running":
+            self.status.setText(f"解压中 {self._done}/{self._total} · {value}%")
+
+    def mark_paused(self) -> None:
+        """把运行中的行标成已暂停。"""
+        if self._state != "running":
+            return
+        self._state = "paused"
+        self.dot.set_state("paused")
+        self.status.setText(f"已暂停 {self._done}/{self._total} · {self._percent}%")
+
+    def mark_running(self) -> None:
+        """从暂停恢复为运行中。"""
+        if self._state != "paused":
+            return
+        self._state = "running"
+        self.dot.set_state("running")
+        self.status.setText(f"解压中 {self._done}/{self._total} · {self._percent}%")
+
+    def is_running(self) -> bool:
+        """是否处于运行或暂停状态。"""
+        return self._state in ("running", "paused")
 
     def finished(self, outcome: Outcome) -> None:
         """显示完成统计；行内只放短文本，细节放悬停提示。"""
         if outcome.skipped:
+            self._state = "waiting"
+            self.dot.set_state("waiting")
             self.status.setText("没有压缩包")
             self.status.setToolTip("")
             return
         details = f"完成 {outcome.archives} 个包 / {outcome.entries} 个条目"
         if outcome.removed:
             details += f"，已删源 {outcome.removed}"
-        if outcome.failures:
-            details += f"，失败 {len(outcome.failures)}"
-        self.status.setText(f"完成 {outcome.archives} 个包")
+        failures = len(outcome.failures)
+        if failures:
+            details += f"，失败 {failures}"
+            self._state = "failed"
+            self.dot.set_state("failed")
+            self.status.setText(f"完成 {outcome.archives} 个包，失败 {failures}")
+        else:
+            self._state = "done"
+            self.dot.set_state("done")
+            self.status.setText(f"完成 {outcome.archives} 个包")
         self.status.setToolTip(details)
 
     def cancelled(self) -> None:
         """取消后的状态。"""
+        self._state = "cancelled"
+        self.dot.set_state("waiting")
         self.status.setText("已取消")
 
 
@@ -118,14 +184,15 @@ class MainWindow(QMainWindow):
         self._error = ""
         self._cancel_requested = False
         self._resolved_theme = apply_theme(QApplication.instance(), self.settings.theme)
+        self._icon_color = "#F2F2F2" if self._resolved_theme == "dark" else "#1B1B1B"
         hints = QGuiApplication.styleHints()
         scheme_changed = getattr(hints, "colorSchemeChanged", None)
         if scheme_changed is not None:
             scheme_changed.connect(self._system_theme_changed)
         self.setWindowTitle("BulkUnzip")
         self.setWindowIcon(QIcon(str(asset_path("app.ico"))))
-        self.resize(960, 640)
-        self.setMinimumSize(760, 520)
+        self.resize(980, 660)
+        self.setMinimumSize(780, 560)
         self.setAcceptDrops(True)
         self._build_ui()
         self.log_dialog = LogDialog(self)
@@ -145,22 +212,40 @@ class MainWindow(QMainWindow):
         layout.addWidget(self._build_body(), 1)
 
     def _build_header(self) -> QWidget:
-        header = QFrame()
+        header = QWidget()
         header.setObjectName("header")
         row = QHBoxLayout(header)
-        row.setContentsMargins(20, 12, 20, 12)
-        row.setSpacing(14)
+        row.setContentsMargins(PAGE_MARGIN, 18, PAGE_MARGIN, 6)
+        row.setSpacing(GAP_M)
+        icon = QLabel()
+        icon.setPixmap(QIcon(str(asset_path("app.ico"))).pixmap(24, 24))
+        icon.setFixedSize(24, 24)
+        row.addWidget(icon)
+        text = QVBoxLayout()
+        text.setSpacing(0)
         title = QLabel("BulkUnzip")
         title.setObjectName("appName")
-        row.addWidget(title)
         subtitle = QLabel("批量解压 · 1 级 / 2 级目录")
         subtitle.setObjectName("subtitle")
-        row.addWidget(subtitle)
+        text.addWidget(title)
+        text.addWidget(subtitle)
+        row.addLayout(text)
         row.addStretch(1)
-        self.tool_label = QLabel("正在检测工具…")
-        self.tool_label.setObjectName("muted")
-        row.addWidget(self.tool_label)
+        self._tool_badges: dict[str, tuple[StatusDot, QLabel]] = {}
+        for kind, title_text in (("7z", "7-Zip"), ("rar", "WinRAR")):
+            badge = QWidget()
+            badge_row = QHBoxLayout(badge)
+            badge_row.setContentsMargins(0, 0, 0, 0)
+            badge_row.setSpacing(6)
+            dot = StatusDot("waiting")
+            label = QLabel(title_text)
+            label.setObjectName("rowState")
+            badge_row.addWidget(dot)
+            badge_row.addWidget(label)
+            self._tool_badges[kind] = (dot, label)
+            row.addWidget(badge)
         settings_button = QPushButton("设置")
+        settings_button.setObjectName("subtle")
         settings_button.clicked.connect(self._open_settings)
         row.addWidget(settings_button)
         return header
@@ -168,51 +253,81 @@ class MainWindow(QMainWindow):
     def _build_body(self) -> QWidget:
         body = QWidget()
         layout = QVBoxLayout(body)
-        layout.setContentsMargins(20, 16, 20, 16)
-        layout.setSpacing(12)
+        layout.setContentsMargins(PAGE_MARGIN, GAP_M, PAGE_MARGIN, PAGE_MARGIN)
+        layout.setSpacing(GAP_M)
         top = QHBoxLayout()
-        top.setSpacing(8)
+        top.setSpacing(GAP_S)
         section = QLabel("任务")
         section.setObjectName("sectionTitle")
         top.addWidget(section)
         top.addStretch(1)
-        add_button = QPushButton("添加目录")
-        add_button.clicked.connect(self._choose_sources)
-        clear_button = QPushButton("清空")
-        clear_button.clicked.connect(self._clear)
-        top.addWidget(add_button)
-        top.addWidget(clear_button)
+        self.add_button = QPushButton(
+            FluentIcon.ADD.icon(color=self._icon_color), "添加目录",
+        )
+        self.add_button.setObjectName("subtle")
+        self.add_button.clicked.connect(self._choose_sources)
+        self.clear_button = QPushButton(
+            FluentIcon.BROOM.icon(color=self._icon_color), "清空",
+        )
+        self.clear_button.setObjectName("subtle")
+        self.clear_button.clicked.connect(self._clear)
+        top.addWidget(self.add_button)
+        top.addWidget(self.clear_button)
         layout.addLayout(top)
-        self.empty_hint = QLabel("把 1 级目录拖到这里，或点「添加目录」")
-        self.empty_hint.setObjectName("muted")
-        self.empty_hint.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        layout.addWidget(self.empty_hint)
+        self.empty_state = self._build_empty_state()
+        layout.addWidget(self.empty_state, 1)
+        self.list_panel = QFrame()
+        self.list_panel.setObjectName("panel")
+        panel_layout = QVBoxLayout(self.list_panel)
+        panel_layout.setContentsMargins(4, 4, 4, 4)
+        panel_layout.setSpacing(0)
         self.list = ListWidget()
         self.list.setObjectName("taskList")
         self.list.setSelectionMode(QAbstractItemView.SelectionMode.NoSelection)
         self.list.setVerticalScrollMode(QAbstractItemView.ScrollMode.ScrollPerPixel)
         self.list.itemDoubleClicked.connect(self._open_row_output)
-        layout.addWidget(self.list, 1)
-        layout.addWidget(self._build_card())
+        panel_layout.addWidget(self.list)
+        layout.addWidget(self.list_panel, 1)
+        layout.addWidget(self._build_panel())
         return body
 
-    def _build_card(self) -> QWidget:
-        card = QFrame()
-        card.setObjectName("card")
-        card.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed)
-        layout = QVBoxLayout(card)
-        layout.setContentsMargins(16, 14, 16, 14)
-        layout.setSpacing(10)
+    def _build_empty_state(self) -> QWidget:
+        frame = QFrame()
+        frame.setObjectName("emptyState")
+        layout = QVBoxLayout(frame)
+        layout.setContentsMargins(GAP_L, GAP_L, GAP_L, GAP_L)
+        layout.setSpacing(GAP_S)
+        layout.addStretch(1)
+        self.empty_icon = QLabel()
+        self.empty_icon.setPixmap(FluentIcon.FOLDER.icon(color=self._icon_color).pixmap(28, 28))
+        self.empty_icon.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        layout.addWidget(self.empty_icon)
+        title = QLabel("把 1 级目录拖到这里")
+        title.setObjectName("rowName")
+        title.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        layout.addWidget(title)
+        hint = QLabel("或点上方「添加目录」")
+        hint.setObjectName("caption")
+        hint.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        layout.addWidget(hint)
+        layout.addStretch(1)
+        return frame
+
+    def _build_panel(self) -> QWidget:
+        panel = QFrame()
+        panel.setObjectName("panel")
+        layout = QVBoxLayout(panel)
+        layout.setContentsMargins(GAP_L, 14, GAP_L, GAP_M)
+        layout.setSpacing(GAP_M)
         output_row = QHBoxLayout()
-        output_row.setSpacing(8)
+        output_row.setSpacing(GAP_S)
         label = QLabel("输出目录")
-        label.setObjectName("muted")
-        label.setFixedWidth(60)
+        label.setObjectName("fieldLabel")
+        label.setFixedWidth(64)
         self.output_edit = QLineEdit()
         self.output_edit.setPlaceholderText("解压结果写到这个目录")
         self.output_edit.textChanged.connect(self._output_changed)
         browse = QPushButton("浏览")
-        browse.setFixedWidth(64)
         browse.clicked.connect(self._choose_output)
         output_row.addWidget(label)
         output_row.addWidget(self.output_edit, 1)
@@ -226,30 +341,33 @@ class MainWindow(QMainWindow):
         self.delete_check.toggled.connect(self._delete_changed)
         layout.addWidget(self.delete_check)
         actions = QHBoxLayout()
-        actions.setSpacing(14)
+        actions.setSpacing(GAP_S)
         self.start_button = QPushButton("开始解压")
         self.start_button.setObjectName("primary")
-        self.start_button.setMinimumHeight(34)
+        self.start_button.setMinimumHeight(36)
         self.start_button.clicked.connect(self._start)
         self.pause_button = QPushButton("暂停")
         self.pause_button.setObjectName("primary")
-        self.pause_button.setMinimumHeight(34)
+        self.pause_button.setMinimumHeight(36)
         self.pause_button.clicked.connect(self._toggle_pause)
         self.cancel_button = QPushButton("取消")
-        self.cancel_button.setMinimumHeight(34)
+        self.cancel_button.setObjectName("danger")
+        self.cancel_button.setMinimumHeight(36)
         self.cancel_button.clicked.connect(self._cancel)
         primary = QWidget()
         primary_layout = QHBoxLayout(primary)
         primary_layout.setContentsMargins(0, 0, 0, 0)
-        primary_layout.setSpacing(8)
+        primary_layout.setSpacing(GAP_S)
         primary_layout.addWidget(self.start_button, 1)
         primary_layout.addWidget(self.pause_button, 1)
         primary_layout.addWidget(self.cancel_button, 1)
         self.pause_button.hide()
         self.cancel_button.hide()
         log_button = QPushButton("查看日志")
+        log_button.setObjectName("subtle")
         log_button.clicked.connect(self._show_log)
         open_button = QPushButton("打开输出目录")
+        open_button.setObjectName("subtle")
         open_button.clicked.connect(self._open_output)
         self._primary_area = primary
         actions.addWidget(primary, 1)
@@ -257,9 +375,9 @@ class MainWindow(QMainWindow):
         actions.addWidget(open_button)
         layout.addLayout(actions)
         self.summary = QLabel("")
-        self.summary.setObjectName("muted")
+        self.summary.setObjectName("caption")
         layout.addWidget(self.summary)
-        return card
+        return panel
 
     # ---------- 状态 ----------
 
@@ -273,17 +391,24 @@ class MainWindow(QMainWindow):
         self._refresh_summary()
 
     def _refresh_tools(self) -> None:
-        """解析工具路径并显示状态。"""
+        """解析工具路径并在头部显示状态。"""
         for kind, key in (("7z", "sevenzip_path"), ("rar", "rar_path")):
             try:
                 self._tools[kind] = resolve_tool(kind, getattr(self.settings, key))
             except ValueError as error:
                 self._tools[kind] = None
                 self.summary.setText(str(error))
-        self.tool_label.setText(
-            f"7-Zip {'已就绪' if self._tools['7z'] else '未找到'}　"
-            f"WinRAR {'已就绪' if self._tools['rar'] else '未找到'}",
-        )
+        for kind, title in (("7z", "7-Zip"), ("rar", "WinRAR")):
+            dot, label = self._tool_badges[kind]
+            tool = self._tools.get(kind)
+            if tool is None:
+                dot.set_state("failed")
+                label.setText(f"{title} 未找到")
+                label.parentWidget().setToolTip("未找到，可在设置里指定路径")
+            else:
+                dot.set_state("done")
+                label.setText(f"{title} 就绪")
+                label.parentWidget().setToolTip(str(tool))
 
     def _open_settings(self) -> None:
         dialog = SettingsDialog(self, self.settings)
@@ -295,9 +420,20 @@ class MainWindow(QMainWindow):
         self._refresh_tools()
 
     def _apply_theme(self) -> None:
-        """按当前设置重新应用主题与标题栏。"""
+        """按当前设置重新应用主题、标题栏与图标颜色。"""
         self._resolved_theme = apply_theme(QApplication.instance(), self.settings.theme)
+        self._icon_color = "#F2F2F2" if self._resolved_theme == "dark" else "#1B1B1B"
         apply_title_bar(self, self._resolved_theme == "dark")
+        self._refresh_icons()
+
+    def _refresh_icons(self) -> None:
+        """图标颜色跟随深浅主题。"""
+        color = self._icon_color
+        self.add_button.setIcon(FluentIcon.ADD.icon(color=color))
+        self.clear_button.setIcon(FluentIcon.BROOM.icon(color=color))
+        self.empty_icon.setPixmap(FluentIcon.FOLDER.icon(color=color).pixmap(28, 28))
+        for row in self._rows:
+            row.remove_button.setIcon(FluentIcon.DELETE.icon(color=color))
 
     def _system_theme_changed(self, _scheme: object) -> None:
         """系统深浅色变化时，跟随模式要立刻刷新。"""
@@ -306,8 +442,8 @@ class MainWindow(QMainWindow):
 
     def _refresh_summary(self) -> None:
         count = len(self._rows)
-        self.empty_hint.setVisible(count == 0)
-        self.list.setVisible(count > 0)
+        self.empty_state.setVisible(count == 0)
+        self.list_panel.setVisible(count > 0)
         self.summary.setText(f"{count} 个任务" if count else "还没有任务")
 
     def _output_changed(self, text: str) -> None:
@@ -336,11 +472,17 @@ class MainWindow(QMainWindow):
 
     def _append_row(self, path: Path) -> None:
         item = QListWidgetItem()
-        row = TaskRow(path, lambda: self._remove_row(item))
+        row = TaskRow(path, lambda: self._remove_row(item), self._icon_color)
         item.setSizeHint(row.sizeHint())
         self.list.addItem(item)
         self.list.setItemWidget(item, row)
         self._rows.append(row)
+        self._update_dividers()
+
+    def _update_dividers(self) -> None:
+        """最后一行不画分隔线。"""
+        for index, row in enumerate(self._rows):
+            row.divider.setVisible(index < len(self._rows) - 1)
 
     def _remove_row(self, item: QListWidgetItem) -> None:
         row = self.list.itemWidget(item)
@@ -351,6 +493,7 @@ class MainWindow(QMainWindow):
         if isinstance(row, TaskRow):
             self._rows = [entry for entry in self._rows if entry is not row]
         self._refresh_summary()
+        self._update_dividers()
 
     def _choose_sources(self) -> None:
         selected = QFileDialog.getExistingDirectory(self, "选择 1 级目录")
@@ -438,6 +581,8 @@ class MainWindow(QMainWindow):
             self._worker.resume()
             self.pause_button.setText("暂停")
             self.summary.setText("继续解压…")
+            for row in self._rows:
+                row.mark_running()
         else:
             self._worker.pause()
             self.pause_button.setText("继续")
@@ -445,6 +590,8 @@ class MainWindow(QMainWindow):
                 self.summary.setText("已暂停（点「继续」恢复）")
             else:
                 self.summary.setText("已暂停：当前压缩包完成后停下")
+            for row in self._rows:
+                row.mark_paused()
 
     def _confirm_cancel(self) -> bool:
         """取消前确认，默认按钮是继续解压，避免手滑。"""
@@ -455,6 +602,7 @@ class MainWindow(QMainWindow):
         box.setInformativeText("已解出的文件会保留，正在解的压缩包会作废。")
         keep = box.addButton("继续解压", QMessageBox.ButtonRole.RejectRole)
         stop = box.addButton("取消任务", QMessageBox.ButtonRole.DestructiveRole)
+        stop.setObjectName("danger")
         box.setDefaultButton(keep)
         box.exec()
         return box.clickedButton() is stop
@@ -490,7 +638,7 @@ class MainWindow(QMainWindow):
         self._set_running(False)
         if self._cancel_requested:
             for row in self._rows:
-                if row.status.text().startswith("解压中"):
+                if row.is_running():
                     row.cancelled()
             self.summary.setText("已取消")
             self._cancel_requested = False
