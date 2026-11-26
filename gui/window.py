@@ -48,6 +48,7 @@ class TaskRow(QWidget):
     def __init__(self, path: Path, on_remove, icon_color: str) -> None:
         super().__init__()
         self.setObjectName("taskRow")
+        self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
         self.setAttribute(Qt.WidgetAttribute.WA_Hover, True)
         self.setFixedHeight(TASK_ROW_HEIGHT)
         self.path = path
@@ -55,17 +56,9 @@ class TaskRow(QWidget):
         self._total = 1
         self._percent = 0
         self._state = "waiting"
-        outer = QVBoxLayout(self)
-        outer.setContentsMargins(0, 0, 0, 0)
-        outer.setSpacing(0)
-        content = QWidget()
-        content.setObjectName("taskRowContent")
-        content.setAttribute(Qt.WidgetAttribute.WA_Hover, True)
-        layout = QHBoxLayout(content)
-        layout.setContentsMargins(12, 0, 8, 0)
-        layout.setSpacing(10)
-        self.dot = StatusDot("waiting")
-        layout.addWidget(self.dot, 0, Qt.AlignmentFlag.AlignVCenter)
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(12, 0, 12, 0)
+        layout.setSpacing(12)
         self.name = ElidedLabel(path.name)
         self.name.setObjectName("rowName")
         layout.addWidget(self.name, 1)
@@ -83,10 +76,6 @@ class TaskRow(QWidget):
         remove.clicked.connect(on_remove)
         self.remove_button = remove
         layout.addWidget(remove)
-        outer.addWidget(content, 1)
-        self.divider = QFrame()
-        self.divider.setObjectName("rowDivider")
-        outer.addWidget(self.divider)
 
     def waiting(self) -> None:
         """回到等待状态。"""
@@ -94,7 +83,6 @@ class TaskRow(QWidget):
         self._total = 1
         self._percent = 0
         self._state = "waiting"
-        self.dot.set_state("waiting")
         self.status.setText("等待开始")
         self.status.setToolTip("")
 
@@ -104,7 +92,6 @@ class TaskRow(QWidget):
         self._total = max(total, 1)
         self._percent = 0
         self._state = "running"
-        self.dot.set_state("running")
         self.status.setText(f"解压中 0/{self._total}")
         self.status.setToolTip("")
 
@@ -126,7 +113,6 @@ class TaskRow(QWidget):
         if self._state != "running":
             return
         self._state = "paused"
-        self.dot.set_state("paused")
         self.status.setText(f"已暂停 {self._done}/{self._total} · {self._percent}%")
 
     def mark_running(self) -> None:
@@ -134,7 +120,6 @@ class TaskRow(QWidget):
         if self._state != "paused":
             return
         self._state = "running"
-        self.dot.set_state("running")
         self.status.setText(f"解压中 {self._done}/{self._total} · {self._percent}%")
 
     def is_running(self) -> bool:
@@ -145,7 +130,6 @@ class TaskRow(QWidget):
         """显示完成统计；行内只放短文本，细节放悬停提示。"""
         if outcome.skipped:
             self._state = "waiting"
-            self.dot.set_state("waiting")
             self.status.setText("没有压缩包")
             self.status.setToolTip("")
             return
@@ -156,18 +140,15 @@ class TaskRow(QWidget):
         if failures:
             details += f"，失败 {failures}"
             self._state = "failed"
-            self.dot.set_state("failed")
             self.status.setText(f"完成 {outcome.archives} 个包，失败 {failures}")
         else:
             self._state = "done"
-            self.dot.set_state("done")
             self.status.setText(f"完成 {outcome.archives} 个包")
         self.status.setToolTip(details)
 
     def cancelled(self) -> None:
         """取消后的状态。"""
         self._state = "cancelled"
-        self.dot.set_state("waiting")
         self.status.setText("已取消")
 
 
@@ -274,18 +255,13 @@ class MainWindow(QMainWindow):
         layout.addLayout(top)
         self.empty_state = self._build_empty_state()
         layout.addWidget(self.empty_state, 1)
-        self.list_panel = QFrame()
-        self.list_panel.setObjectName("panel")
-        panel_layout = QVBoxLayout(self.list_panel)
-        panel_layout.setContentsMargins(4, 4, 4, 4)
-        panel_layout.setSpacing(0)
         self.list = ListWidget()
         self.list.setObjectName("taskList")
+        self.list.setSpacing(4)
         self.list.setSelectionMode(QAbstractItemView.SelectionMode.NoSelection)
         self.list.setVerticalScrollMode(QAbstractItemView.ScrollMode.ScrollPerPixel)
         self.list.itemDoubleClicked.connect(self._open_row_output)
-        panel_layout.addWidget(self.list)
-        layout.addWidget(self.list_panel, 1)
+        layout.addWidget(self.list, 1)
         layout.addWidget(self._build_panel())
         return body
 
@@ -439,7 +415,7 @@ class MainWindow(QMainWindow):
     def _refresh_summary(self) -> None:
         count = len(self._rows)
         self.empty_state.setVisible(count == 0)
-        self.list_panel.setVisible(count > 0)
+        self.list.setVisible(count > 0)
         self.summary.setText(f"{count} 个任务" if count else "还没有任务")
 
     def _output_changed(self, text: str) -> None:
@@ -473,12 +449,6 @@ class MainWindow(QMainWindow):
         self.list.addItem(item)
         self.list.setItemWidget(item, row)
         self._rows.append(row)
-        self._update_dividers()
-
-    def _update_dividers(self) -> None:
-        """最后一行不画分隔线。"""
-        for index, row in enumerate(self._rows):
-            row.divider.setVisible(index < len(self._rows) - 1)
 
     def _remove_row(self, item: QListWidgetItem) -> None:
         row = self.list.itemWidget(item)
@@ -489,7 +459,6 @@ class MainWindow(QMainWindow):
         if isinstance(row, TaskRow):
             self._rows = [entry for entry in self._rows if entry is not row]
         self._refresh_summary()
-        self._update_dividers()
 
     def _choose_sources(self) -> None:
         selected = QFileDialog.getExistingDirectory(self, "选择 1 级目录")

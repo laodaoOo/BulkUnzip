@@ -101,12 +101,13 @@ QFrame#emptyState {
     background: $surface; border: 1px dashed $control_stroke; border-radius: 8px;
 }
 QFrame#separator { background: $stroke; min-height: 1px; max-height: 1px; border: none; }
-QFrame#rowDivider { background: $stroke; min-height: 1px; max-height: 1px; border: none; }
 
 QListWidget#taskList { background: transparent; border: none; outline: none; padding: 0; }
 QListWidget#taskList::item { background: transparent; border: none; }
-QWidget#taskRow { background: transparent; }
-QWidget#taskRowContent:hover { background: $hover; }
+QWidget#taskRow {
+    background: $surface; border: 1px solid $stroke; border-radius: 6px;
+}
+QWidget#taskRow:hover { background: $hover; border-color: $control_stroke; }
 
 QLabel#statusDot { border-radius: 4px; background: $text_tertiary; }
 QLabel#statusDot[state="running"] { background: $accent; }
