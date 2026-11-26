@@ -5,7 +5,7 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
-from PySide6.QtCore import QSize, Qt, QUrl
+from PySide6.QtCore import Qt, QUrl
 from PySide6.QtGui import QDesktopServices, QGuiApplication, QIcon
 from PySide6.QtWidgets import (
     QAbstractItemView,
@@ -17,17 +17,15 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QLineEdit,
-    QListWidget,
     QListWidgetItem,
     QMainWindow,
     QMessageBox,
     QPushButton,
     QSizePolicy,
-    QToolButton,
     QVBoxLayout,
     QWidget,
 )
-from qfluentwidgets import FluentIcon
+from qfluentwidgets import FluentIcon, ListWidget, ToolButton
 
 from core import Outcome, SourcePlan, plan_sources, resolve_tool
 from gui.config import Settings, load_settings, save_settings
@@ -36,41 +34,29 @@ from gui.resources import asset_path
 from gui.tasks import ExtractWorker
 from gui.theme import apply_theme, apply_title_bar
 
-ROW_HEIGHT = 36
-
 
 class TaskRow(QWidget):
     """一行任务：目录名、状态、进度与移除。"""
 
-    def __init__(self, path: Path, on_remove, icon_color: str) -> None:
+    def __init__(self, path: Path, on_remove) -> None:
         super().__init__()
-        self.setObjectName("taskRow")
         self.path = path
         self._done = 0
         self._total = 1
         self._percent = 0
         layout = QHBoxLayout(self)
-        layout.setContentsMargins(8, 4, 4, 4)
-        layout.setSpacing(10)
-        name = QLabel()
-        name.setObjectName("rowTitle")
-        metrics = name.fontMetrics()
-        name.setText(metrics.elidedText(path.name, Qt.TextElideMode.ElideRight, 190))
-        name.setFixedWidth(200)
+        layout.setContentsMargins(6, 2, 4, 2)
+        layout.setSpacing(6)
+        name = QLabel(path.name)
         name.setToolTip(str(path))
-        layout.addWidget(name)
+        layout.addWidget(name, 1)
         self.status = QLabel("等待开始")
         self.status.setObjectName("muted")
         layout.addWidget(self.status)
-        layout.addStretch(1)
-        remove = QToolButton()
-        remove.setIcon(FluentIcon.DELETE.icon(color=icon_color))
-        remove.setIconSize(QSize(16, 16))
-        remove.setFixedSize(28, 28)
+        remove = ToolButton(FluentIcon.DELETE)
         remove.setToolTip("移除")
         remove.setCursor(Qt.CursorShape.PointingHandCursor)
         remove.clicked.connect(on_remove)
-        self.remove_button = remove
         layout.addWidget(remove)
 
     def waiting(self) -> None:
@@ -132,7 +118,6 @@ class MainWindow(QMainWindow):
         self._error = ""
         self._cancel_requested = False
         self._resolved_theme = apply_theme(QApplication.instance(), self.settings.theme)
-        self._icon_color = "#F2F2F2" if self._resolved_theme == "dark" else "#1B1B1B"
         hints = QGuiApplication.styleHints()
         scheme_changed = getattr(hints, "colorSchemeChanged", None)
         if scheme_changed is not None:
@@ -202,7 +187,7 @@ class MainWindow(QMainWindow):
         self.empty_hint.setObjectName("muted")
         self.empty_hint.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(self.empty_hint)
-        self.list = QListWidget()
+        self.list = ListWidget()
         self.list.setObjectName("taskList")
         self.list.setSelectionMode(QAbstractItemView.SelectionMode.NoSelection)
         self.list.setVerticalScrollMode(QAbstractItemView.ScrollMode.ScrollPerPixel)
@@ -312,16 +297,7 @@ class MainWindow(QMainWindow):
     def _apply_theme(self) -> None:
         """按当前设置重新应用主题与标题栏。"""
         self._resolved_theme = apply_theme(QApplication.instance(), self.settings.theme)
-        self._icon_color = "#F2F2F2" if self._resolved_theme == "dark" else "#1B1B1B"
         apply_title_bar(self, self._resolved_theme == "dark")
-        if hasattr(self, "start_button"):
-            self._refresh_icons()
-
-    def _refresh_icons(self) -> None:
-        """图标颜色跟随深浅主题。"""
-        color = self._icon_color
-        for row in self._rows:
-            row.remove_button.setIcon(FluentIcon.DELETE.icon(color=color))
 
     def _system_theme_changed(self, _scheme: object) -> None:
         """系统深浅色变化时，跟随模式要立刻刷新。"""
@@ -360,9 +336,9 @@ class MainWindow(QMainWindow):
 
     def _append_row(self, path: Path) -> None:
         item = QListWidgetItem()
-        item.setSizeHint(QSize(0, ROW_HEIGHT))
+        row = TaskRow(path, lambda: self._remove_row(item))
+        item.setSizeHint(row.sizeHint())
         self.list.addItem(item)
-        row = TaskRow(path, lambda: self._remove_row(item), self._icon_color)
         self.list.setItemWidget(item, row)
         self._rows.append(row)
 

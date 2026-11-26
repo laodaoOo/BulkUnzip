@@ -80,20 +80,9 @@ QLabel#sectionTitle { font-size: 15px; font-weight: 600; }
 QLabel#rowTitle { font-weight: 600; }
 QFrame#card { background: $surface; border: 1px solid $border; border-radius: 8px; }
 QListWidget#taskList {
-    background: $background; border: none; border-radius: 8px;
-    padding: 4px; outline: none;
+    background: $surface; border: 1px solid $border; border-radius: 6px;
+    padding: 2px; outline: none;
 }
-QListWidget#taskList::item {
-    background: transparent; border-radius: 6px; margin: 1px;
-}
-QListWidget#taskList::item:hover { background: $hover; }
-QListWidget#taskList::item:selected { background: $selection; }
-QWidget#taskRow { background: transparent; }
-QToolButton {
-    border: none; border-radius: 4px; padding: 4px; background: transparent;
-}
-QToolButton:hover { background: $hover; }
-QToolButton:pressed { background: $pressed; }
 QPushButton {
     background: $surface; border: 1px solid $control_border; border-radius: 5px;
     padding: 6px 14px; min-height: 18px;
@@ -205,8 +194,16 @@ def apply_theme(app: QApplication, mode: str) -> str:
         except (TypeError, AttributeError):
             pass
     app.setPalette(build_palette(table))
+    _apply_fluent_theme(resolved)
     app.setStyleSheet(_TEMPLATE.substitute(**table))
     return resolved
+
+
+def _apply_fluent_theme(resolved: str) -> None:
+    """让 Fluent 列表与图标跟随深浅色。"""
+    from qfluentwidgets import Theme, setTheme
+
+    setTheme(Theme.DARK if resolved == "dark" else Theme.LIGHT)
 
 
 def apply_title_bar(window: QWidget, dark: bool) -> None:
