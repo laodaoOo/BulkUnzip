@@ -97,9 +97,6 @@ QLabel#rowName { font-size: 13px; font-weight: 600; }
 QLabel#rowState { color: $text_secondary; font-size: 12px; }
 
 QFrame#panel { background: $surface; border: 1px solid $stroke; border-radius: 8px; }
-QFrame#emptyState {
-    background: $surface; border: 1px dashed $control_stroke; border-radius: 8px;
-}
 QFrame#separator { background: $stroke; min-height: 1px; max-height: 1px; border: none; }
 
 QListWidget#taskList { background: transparent; border: none; outline: none; padding: 0; }
