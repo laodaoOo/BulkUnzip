@@ -145,7 +145,7 @@ class SettingsDialog(QDialog):
     def __init__(self, parent: QWidget | None, settings: Settings) -> None:
         super().__init__(parent)
         self.setWindowTitle("设置 · BulkUnzip")
-        self.resize(560, 430)
+        self.resize(600, 440)
         self._settings = settings
         layout = QVBoxLayout(self)
         layout.setContentsMargins(GAP_XL, GAP_XL, GAP_XL, GAP_XL)
@@ -185,7 +185,6 @@ class SettingsDialog(QDialog):
         buttons = QHBoxLayout()
         buttons.setSpacing(GAP_S)
         detect = QPushButton("自动检测")
-        detect.setObjectName("subtle")
         detect.clicked.connect(self._detect)
         cancel = QPushButton("取消")
         cancel.clicked.connect(self.reject)

@@ -120,7 +120,7 @@ QPushButton {
 }
 QPushButton:hover { background: $hover; }
 QPushButton:pressed { background: $pressed; }
-QPushButton:focus { border: 2px solid $accent; }
+QPushButton:focus { border: 1px solid $accent; }
 QPushButton:disabled {
     color: $disabled_text; background: $disabled_bg; border-color: $disabled_border;
 }
@@ -132,17 +132,15 @@ QPushButton#primary:hover { background: $accent_hover; }
 QPushButton#primary:pressed { background: $accent_pressed; }
 QPushButton#primary:focus { border: 2px solid $on_accent; }
 QPushButton#primary:disabled { background: $primary_disabled; color: $disabled_text; }
-QPushButton#subtle {
-    background: transparent; border: 1px solid transparent; color: $text_secondary;
-}
-QPushButton#subtle:hover { background: $hover; color: $text; }
-QPushButton#subtle:pressed { background: $pressed; }
 QPushButton#danger {
     background: $surface; border: 1px solid $control_stroke; color: $danger;
 }
 QPushButton#danger:hover { background: $hover; border-color: $danger; }
 QPushButton#danger:pressed { background: $pressed; }
 QPushButton#danger:focus { border: 2px solid $accent; }
+QToolButton { background: transparent; border: none; border-radius: 4px; }
+QToolButton:hover { background: $hover; }
+QToolButton:pressed { background: $pressed; }
 
 QLineEdit {
     background: $surface; border: 1px solid $control_stroke; border-radius: 4px;
@@ -160,14 +158,6 @@ QPlainTextEdit {
 
 QCheckBox, QRadioButton { spacing: 8px; }
 QCheckBox { padding: 2px 0; min-height: 22px; }
-QRadioButton::indicator {
-    width: 16px; height: 16px; border-radius: 8px;
-    border: 1px solid $check_border; background: $surface;
-}
-QRadioButton::indicator:hover { border-color: $accent; }
-QRadioButton::indicator:checked {
-    border: 5px solid $accent; background: $surface;
-}
 QCheckBox::indicator {
     width: 16px; height: 16px; border-radius: 3px;
     border: 1px solid $check_border; background: $surface;

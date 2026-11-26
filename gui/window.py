@@ -198,6 +198,7 @@ class MainWindow(QMainWindow):
         self.log_dialog = LogDialog(self)
         self._restore()
         self._set_running(False)
+        self.output_edit.setFocus()
 
     # ---------- 界面 ----------
 
@@ -245,7 +246,6 @@ class MainWindow(QMainWindow):
             self._tool_badges[kind] = (dot, label)
             row.addWidget(badge)
         settings_button = QPushButton("设置")
-        settings_button.setObjectName("subtle")
         settings_button.clicked.connect(self._open_settings)
         row.addWidget(settings_button)
         return header
@@ -264,12 +264,10 @@ class MainWindow(QMainWindow):
         self.add_button = QPushButton(
             FluentIcon.ADD.icon(color=self._icon_color), "添加目录",
         )
-        self.add_button.setObjectName("subtle")
         self.add_button.clicked.connect(self._choose_sources)
         self.clear_button = QPushButton(
             FluentIcon.BROOM.icon(color=self._icon_color), "清空",
         )
-        self.clear_button.setObjectName("subtle")
         self.clear_button.clicked.connect(self._clear)
         top.addWidget(self.add_button)
         top.addWidget(self.clear_button)
@@ -364,10 +362,8 @@ class MainWindow(QMainWindow):
         self.pause_button.hide()
         self.cancel_button.hide()
         log_button = QPushButton("查看日志")
-        log_button.setObjectName("subtle")
         log_button.clicked.connect(self._show_log)
         open_button = QPushButton("打开输出目录")
-        open_button.setObjectName("subtle")
         open_button.clicked.connect(self._open_output)
         self._primary_area = primary
         actions.addWidget(primary, 1)
