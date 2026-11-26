@@ -24,9 +24,11 @@ from PySide6.QtWidgets import (
     QProgressBar,
     QPushButton,
     QSizePolicy,
+    QToolButton,
     QVBoxLayout,
     QWidget,
 )
+from qfluentwidgets import FluentIcon
 
 from core import Outcome, SourcePlan, plan_sources, resolve_tool
 from gui.config import Settings, load_settings, save_settings
@@ -35,39 +37,51 @@ from gui.resources import asset_path
 from gui.tasks import ExtractWorker
 from gui.theme import apply_theme, apply_title_bar
 
-ROW_HEIGHT = 68
+ROW_HEIGHT = 46
 
 
 class TaskRow(QWidget):
     """一行任务：目录名、状态、进度与移除。"""
 
-    def __init__(self, path: Path, on_remove) -> None:
+    def __init__(self, path: Path, on_remove, icon_color: str) -> None:
         super().__init__()
+        self.setObjectName("taskRow")
         self.path = path
         self._done = 0
         self._total = 1
         self._percent = 0
         layout = QHBoxLayout(self)
-        layout.setContentsMargins(8, 6, 6, 6)
-        layout.setSpacing(12)
-        text = QVBoxLayout()
-        text.setSpacing(2)
-        name = QLabel(path.name)
+        layout.setContentsMargins(0, 0, 8, 0)
+        layout.setSpacing(10)
+        accent = QFrame()
+        accent.setObjectName("rowAccent")
+        accent.setFixedWidth(4)
+        accent.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Expanding)
+        layout.addWidget(accent)
+        name = QLabel()
         name.setObjectName("rowTitle")
+        metrics = name.fontMetrics()
+        name.setText(metrics.elidedText(path.name, Qt.TextElideMode.ElideRight, 190))
+        name.setFixedWidth(200)
+        name.setToolTip(str(path))
+        layout.addWidget(name)
         self.status = QLabel("等待开始")
-        self.status.setObjectName("muted")
-        text.addWidget(name)
-        text.addWidget(self.status)
-        layout.addLayout(text, 1)
+        self.status.setObjectName("statusChip")
+        self.status.setMaximumWidth(240)
+        layout.addWidget(self.status)
         self.progress = QProgressBar()
         self.progress.setRange(0, 100)
         self.progress.setValue(0)
         self.progress.setTextVisible(False)
-        self.progress.setFixedWidth(150)
-        layout.addWidget(self.progress)
-        remove = QPushButton("移除")
-        remove.setFixedWidth(64)
+        self.progress.setMinimumWidth(140)
+        layout.addWidget(self.progress, 1)
+        remove = QToolButton()
+        remove.setIcon(FluentIcon.DELETE.icon(color=icon_color))
+        remove.setIconSize(QSize(16, 16))
+        remove.setFixedSize(28, 28)
+        remove.setToolTip("移除")
         remove.clicked.connect(on_remove)
+        self.remove_button = remove
         layout.addWidget(remove)
 
     def waiting(self) -> None:
@@ -76,6 +90,7 @@ class TaskRow(QWidget):
         self._total = 1
         self._percent = 0
         self.status.setText("等待开始")
+        self.status.setToolTip("")
         self.progress.setValue(0)
 
     def running(self, total: int) -> None:
@@ -84,6 +99,7 @@ class TaskRow(QWidget):
         self._total = max(total, 1)
         self._percent = 0
         self.status.setText(f"解压中 0/{self._total}")
+        self.status.setToolTip("")
         self.progress.setValue(0)
 
     def set_count(self, done: int, total: int) -> None:
@@ -99,22 +115,24 @@ class TaskRow(QWidget):
         self.status.setText(f"解压中 {self._done}/{self._total} · {value}%")
 
     def finished(self, outcome: Outcome) -> None:
-        """显示完成统计。"""
+        """显示完成统计；胶囊里放短文本，细节放悬停提示。"""
         if outcome.skipped:
-            self.status.setText("没有找到压缩包")
+            self.status.setText("没有压缩包")
+            self.status.setToolTip("")
             self.progress.setValue(0)
             return
-        text = f"完成 {outcome.archives} 个包 / {outcome.entries} 个条目"
+        details = f"完成 {outcome.archives} 个包 / {outcome.entries} 个条目"
         if outcome.removed:
-            text += f"，已删源 {outcome.removed}"
+            details += f"，已删源 {outcome.removed}"
         if outcome.failures:
-            text += f"，失败 {len(outcome.failures)}"
-        self.status.setText(text)
+            details += f"，失败 {len(outcome.failures)}"
+        self.status.setText(f"完成 {outcome.archives} 个包")
+        self.status.setToolTip(details)
         self.progress.setValue(100)
 
     def cancelled(self) -> None:
         """取消后的状态。"""
-        self.status.setText("已停止")
+        self.status.setText("已取消")
 
 
 class MainWindow(QMainWindow):
@@ -130,6 +148,7 @@ class MainWindow(QMainWindow):
         self._error = ""
         self._cancel_requested = False
         self._resolved_theme = apply_theme(QApplication.instance(), self.settings.theme)
+        self._icon_color = "#F2F2F2" if self._resolved_theme == "dark" else "#1B1B1B"
         hints = QGuiApplication.styleHints()
         scheme_changed = getattr(hints, "colorSchemeChanged", None)
         if scheme_changed is not None:
@@ -309,7 +328,16 @@ class MainWindow(QMainWindow):
     def _apply_theme(self) -> None:
         """按当前设置重新应用主题与标题栏。"""
         self._resolved_theme = apply_theme(QApplication.instance(), self.settings.theme)
+        self._icon_color = "#F2F2F2" if self._resolved_theme == "dark" else "#1B1B1B"
         apply_title_bar(self, self._resolved_theme == "dark")
+        if hasattr(self, "start_button"):
+            self._refresh_icons()
+
+    def _refresh_icons(self) -> None:
+        """图标颜色跟随深浅主题。"""
+        color = self._icon_color
+        for row in self._rows:
+            row.remove_button.setIcon(FluentIcon.DELETE.icon(color=color))
 
     def _system_theme_changed(self, _scheme: object) -> None:
         """系统深浅色变化时，跟随模式要立刻刷新。"""
@@ -350,7 +378,7 @@ class MainWindow(QMainWindow):
         item = QListWidgetItem()
         item.setSizeHint(QSize(0, ROW_HEIGHT))
         self.list.addItem(item)
-        row = TaskRow(path, lambda: self._remove_row(item))
+        row = TaskRow(path, lambda: self._remove_row(item), self._icon_color)
         self.list.setItemWidget(item, row)
         self._rows.append(row)
 

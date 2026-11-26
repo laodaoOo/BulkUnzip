@@ -80,12 +80,20 @@ QLabel#sectionTitle { font-size: 15px; font-weight: 600; }
 QLabel#rowTitle { font-weight: 600; }
 QFrame#card { background: $surface; border: 1px solid $border; border-radius: 8px; }
 QListWidget#taskList {
-    background: $surface; border: 1px solid $border; border-radius: 8px;
+    background: $background; border: 1px solid $border; border-radius: 8px;
     padding: 4px; outline: none;
 }
-QListWidget#taskList::item { border-radius: 6px; margin: 2px; }
+QListWidget#taskList::item {
+    background: $surface; border-radius: 6px; margin: 3px;
+}
 QListWidget#taskList::item:hover { background: $hover; }
 QListWidget#taskList::item:selected { background: $selection; }
+QWidget#taskRow { background: transparent; }
+QFrame#rowAccent { background: $accent; border-radius: 2px; }
+QLabel#statusChip {
+    background: $surface; border: 1px solid $border; border-radius: 4px;
+    padding: 2px 8px; color: $muted;
+}
 QPushButton {
     background: $surface; border: 1px solid $control_border; border-radius: 5px;
     padding: 6px 14px; min-height: 18px;
