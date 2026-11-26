@@ -8,7 +8,6 @@ from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import QApplication
 
 from gui.resources import asset_path
-from gui.theme import apply_theme
 from gui.version import APP_VERSION
 from gui.window import MainWindow
 
@@ -24,7 +23,6 @@ def main() -> int:
     app.setApplicationVersion(APP_VERSION)
     app.setOrganizationName(APP_NAME)
     app.setWindowIcon(QIcon(str(asset_path("app.ico"))))
-    apply_theme(app)
     window = MainWindow()
     window.show()
     return app.exec()
