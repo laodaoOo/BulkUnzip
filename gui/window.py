@@ -21,7 +21,6 @@ from PySide6.QtWidgets import (
     QListWidgetItem,
     QMainWindow,
     QMessageBox,
-    QProgressBar,
     QPushButton,
     QSizePolicy,
     QToolButton,
@@ -37,7 +36,7 @@ from gui.resources import asset_path
 from gui.tasks import ExtractWorker
 from gui.theme import apply_theme, apply_title_bar
 
-ROW_HEIGHT = 46
+ROW_HEIGHT = 36
 
 
 class TaskRow(QWidget):
@@ -51,13 +50,8 @@ class TaskRow(QWidget):
         self._total = 1
         self._percent = 0
         layout = QHBoxLayout(self)
-        layout.setContentsMargins(0, 0, 8, 0)
+        layout.setContentsMargins(8, 4, 4, 4)
         layout.setSpacing(10)
-        accent = QFrame()
-        accent.setObjectName("rowAccent")
-        accent.setFixedWidth(4)
-        accent.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Expanding)
-        layout.addWidget(accent)
         name = QLabel()
         name.setObjectName("rowTitle")
         metrics = name.fontMetrics()
@@ -66,20 +60,15 @@ class TaskRow(QWidget):
         name.setToolTip(str(path))
         layout.addWidget(name)
         self.status = QLabel("等待开始")
-        self.status.setObjectName("statusChip")
-        self.status.setMaximumWidth(240)
+        self.status.setObjectName("muted")
         layout.addWidget(self.status)
-        self.progress = QProgressBar()
-        self.progress.setRange(0, 100)
-        self.progress.setValue(0)
-        self.progress.setTextVisible(False)
-        self.progress.setMinimumWidth(140)
-        layout.addWidget(self.progress, 1)
+        layout.addStretch(1)
         remove = QToolButton()
         remove.setIcon(FluentIcon.DELETE.icon(color=icon_color))
         remove.setIconSize(QSize(16, 16))
         remove.setFixedSize(28, 28)
         remove.setToolTip("移除")
+        remove.setCursor(Qt.CursorShape.PointingHandCursor)
         remove.clicked.connect(on_remove)
         self.remove_button = remove
         layout.addWidget(remove)
@@ -91,7 +80,6 @@ class TaskRow(QWidget):
         self._percent = 0
         self.status.setText("等待开始")
         self.status.setToolTip("")
-        self.progress.setValue(0)
 
     def running(self, total: int) -> None:
         """开始解压这个目录。"""
@@ -100,7 +88,6 @@ class TaskRow(QWidget):
         self._percent = 0
         self.status.setText(f"解压中 0/{self._total}")
         self.status.setToolTip("")
-        self.progress.setValue(0)
 
     def set_count(self, done: int, total: int) -> None:
         """更新已完成的压缩包个数。"""
@@ -111,15 +98,13 @@ class TaskRow(QWidget):
     def set_percent(self, value: int) -> None:
         """更新当前压缩包的实时百分比。"""
         self._percent = value
-        self.progress.setValue(value)
         self.status.setText(f"解压中 {self._done}/{self._total} · {value}%")
 
     def finished(self, outcome: Outcome) -> None:
-        """显示完成统计；胶囊里放短文本，细节放悬停提示。"""
+        """显示完成统计；行内只放短文本，细节放悬停提示。"""
         if outcome.skipped:
             self.status.setText("没有压缩包")
             self.status.setToolTip("")
-            self.progress.setValue(0)
             return
         details = f"完成 {outcome.archives} 个包 / {outcome.entries} 个条目"
         if outcome.removed:
@@ -128,7 +113,6 @@ class TaskRow(QWidget):
             details += f"，失败 {len(outcome.failures)}"
         self.status.setText(f"完成 {outcome.archives} 个包")
         self.status.setToolTip(details)
-        self.progress.setValue(100)
 
     def cancelled(self) -> None:
         """取消后的状态。"""
