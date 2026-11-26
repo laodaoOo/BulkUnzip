@@ -104,18 +104,6 @@ def draw_icon(size: int = SIZE) -> Image.Image:
     return Image.alpha_composite(base, layer)
 
 
-def make_check() -> Image.Image:
-    """画一个白色对勾，用于复选框选中状态。"""
-    size = 64
-    image = Image.new("RGBA", (size, size), (0, 0, 0, 0))
-    draw = ImageDraw.Draw(image)
-    draw.line(
-        [(size * 0.22, size * 0.52), (size * 0.42, size * 0.72), (size * 0.78, size * 0.30)],
-        fill=(255, 255, 255, 255), width=8, joint="curve",
-    )
-    return image
-
-
 def main() -> None:
     """导出 PNG 与 ICO。"""
     ASSETS.mkdir(parents=True, exist_ok=True)
@@ -125,7 +113,6 @@ def main() -> None:
         ASSETS / "app.ico",
         sizes=[(16, 16), (24, 24), (32, 32), (48, 48), (64, 64), (128, 128), (256, 256)],
     )
-    make_check().save(ASSETS / "check.png")
     print(f"wrote {ASSETS / 'app.png'} and {ASSETS / 'app.ico'}")
 
 

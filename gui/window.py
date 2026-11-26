@@ -23,9 +23,6 @@ from PySide6.QtWidgets import (
     QMessageBox,
     QProgressBar,
     QPushButton,
-    QSizePolicy,
-    QStyle,
-    QToolButton,
     QVBoxLayout,
     QWidget,
 )
@@ -60,21 +57,15 @@ class TaskRow(QWidget):
         self.status.setObjectName("muted")
         text.addWidget(name)
         text.addWidget(self.status)
-        layout.addLayout(text, 0)
+        layout.addLayout(text, 1)
         self.progress = QProgressBar()
         self.progress.setRange(0, 100)
         self.progress.setValue(0)
         self.progress.setTextVisible(False)
-        self.progress.setMinimumWidth(160)
-        self.progress.setSizePolicy(
-            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed,
-        )
-        layout.addWidget(self.progress, 1)
-        remove = QToolButton()
-        remove.setIcon(self.style().standardIcon(QStyle.StandardPixmap.SP_TrashIcon))
-        remove.setIconSize(QSize(16, 16))
-        remove.setFixedSize(30, 30)
-        remove.setToolTip("移除")
+        self.progress.setFixedWidth(150)
+        layout.addWidget(self.progress)
+        remove = QPushButton("移除")
+        remove.setFixedWidth(64)
         remove.clicked.connect(on_remove)
         layout.addWidget(remove)
 
@@ -122,7 +113,7 @@ class TaskRow(QWidget):
 
     def cancelled(self) -> None:
         """取消后的状态。"""
-        self.status.setText("已取消")
+        self.status.setText("已停止")
 
 
 class MainWindow(QMainWindow):
@@ -195,13 +186,9 @@ class MainWindow(QMainWindow):
         section.setObjectName("sectionTitle")
         top.addWidget(section)
         top.addStretch(1)
-        add_button = QPushButton(
-            self.style().standardIcon(QStyle.StandardPixmap.SP_DirOpenIcon), "添加目录",
-        )
+        add_button = QPushButton("添加目录")
         add_button.clicked.connect(self._choose_sources)
-        clear_button = QPushButton(
-            self.style().standardIcon(QStyle.StandardPixmap.SP_DialogResetButton), "清空",
-        )
+        clear_button = QPushButton("清空")
         clear_button.clicked.connect(self._clear)
         top.addWidget(add_button)
         top.addWidget(clear_button)
@@ -240,11 +227,7 @@ class MainWindow(QMainWindow):
         output_row.addWidget(self.output_edit, 1)
         output_row.addWidget(browse)
         layout.addLayout(output_row)
-        self.delete_check = QCheckBox("解压后删除源文件")
-        self.delete_check.setToolTip(
-            "一个 2 级目录里的压缩包全部解开后，删除这些源压缩包；\n"
-            "目录清空后一并移除，有包解不开时保留。",
-        )
+        self.delete_check = QCheckBox("解压后删除源文件（每个 2 级目录解开后清理）")
         self.delete_check.toggled.connect(self._delete_changed)
         layout.addWidget(self.delete_check)
         actions = QHBoxLayout()
@@ -253,23 +236,17 @@ class MainWindow(QMainWindow):
         self.start_button.setObjectName("primary")
         self.start_button.setMinimumHeight(34)
         self.start_button.clicked.connect(self._start)
-        self.cancel_button = QPushButton("取消")
+        self.cancel_button = QPushButton("停止")
         self.cancel_button.clicked.connect(self._cancel)
         self.cancel_button.hide()
-        self.pause_button = QPushButton("暂停")
-        self.pause_button.clicked.connect(self._toggle_pause)
-        self.pause_button.hide()
         log_button = QPushButton("查看日志")
         log_button.clicked.connect(self._show_log)
         open_button = QPushButton("打开输出目录")
         open_button.clicked.connect(self._open_output)
-        actions.addWidget(self.start_button)
-        actions.addWidget(self.pause_button)
+        actions.addWidget(self.start_button, 1)
         actions.addWidget(self.cancel_button)
         actions.addWidget(log_button)
         actions.addWidget(open_button)
-        actions.addStretch(0)
-        self._actions_layout = actions
         layout.addLayout(actions)
         self.summary = QLabel("")
         self.summary.setObjectName("muted")
@@ -445,46 +422,12 @@ class MainWindow(QMainWindow):
         self._worker = worker
         worker.start()
 
-    def _toggle_pause(self) -> None:
-        """暂停 / 继续当前任务。"""
-        if self._worker is None:
-            return
-        if self._worker.paused:
-            self._worker.resume()
-            self.pause_button.setText("暂停")
-            self.summary.setText("继续解压…")
-        else:
-            self._worker.pause()
-            self.pause_button.setText("继续")
-            if self._worker.suspended:
-                self.summary.setText("已暂停（点「继续」恢复）")
-            else:
-                self.summary.setText("已暂停：当前压缩包完成后停下")
-
-    def _confirm_cancel(self) -> bool:
-        """取消前确认，默认按钮是继续解压，避免手滑。"""
-        box = QMessageBox(self)
-        box.setWindowTitle("取消解压")
-        box.setIcon(QMessageBox.Icon.Warning)
-        box.setText("当前任务正在解压，确定取消吗？")
-        box.setInformativeText("已解出的文件会保留，正在解的压缩包会作废。")
-        keep = box.addButton("继续解压", QMessageBox.ButtonRole.RejectRole)
-        stop = box.addButton("取消任务", QMessageBox.ButtonRole.DestructiveRole)
-        box.setDefaultButton(keep)
-        box.exec()
-        return box.clickedButton() is stop
-
     def _cancel(self) -> None:
-        if self._worker is None or self._cancel_requested:
-            return
-        if not self._confirm_cancel():
-            return
-        self._cancel_requested = True
-        self.pause_button.setEnabled(False)
-        self.cancel_button.setEnabled(False)
-        self.cancel_button.setText("正在取消…")
-        self.summary.setText("正在取消…")
-        self._worker.cancel()
+        if self._worker is not None:
+            self._cancel_requested = True
+            self.cancel_button.setEnabled(False)
+            self.summary.setText("正在停止…")
+            self._worker.cancel()
 
     def _row_progress(self, index: int, done: int, total: int) -> None:
         if 0 <= index < len(self._rows):
@@ -507,8 +450,7 @@ class MainWindow(QMainWindow):
             for row in self._rows:
                 if row.status.text().startswith("解压中"):
                     row.cancelled()
-            self.summary.setText("已取消")
-            self._cancel_requested = False
+            self.summary.setText("已停止")
             return
         if self._error:
             self.summary.setText(f"失败：{self._error}")
@@ -535,16 +477,8 @@ class MainWindow(QMainWindow):
         self.output_edit.setEnabled(not running)
         self.delete_check.setEnabled(not running)
         self.start_button.setVisible(not running)
-        self.pause_button.setVisible(running)
-        self.pause_button.setEnabled(running)
-        self.pause_button.setText("暂停")
         self.cancel_button.setVisible(running)
-        self.cancel_button.setEnabled(running)
-        self.cancel_button.setText("取消")
-        start_index = self._actions_layout.indexOf(self.start_button)
-        spacer_index = self._actions_layout.count() - 1
-        self._actions_layout.setStretch(start_index, 0 if running else 1)
-        self._actions_layout.setStretch(spacer_index, 1 if running else 0)
+        self.cancel_button.setEnabled(True)
         if not running:
             self.start_button.setEnabled(True)
 

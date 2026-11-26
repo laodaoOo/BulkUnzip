@@ -7,14 +7,12 @@
 
 from __future__ import annotations
 
-import ctypes
 import os
 import queue
 import re
 import shutil
 import subprocess
 import threading
-import time
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -34,113 +32,9 @@ _PROGRESS_PATTERN = re.compile(r"(\d{1,3})%")
 # 保留的输出尾巴长度，用于失败时取错误行。
 _TAIL_LIMIT = 4000
 
-# OpenProcess 的挂起/恢复权限。
-_PROCESS_SUSPEND_RESUME = 0x0800
-
 
 class CancelledError(RuntimeError):
     """用户中途取消。"""
-
-
-def _suspend_process(pid: int) -> bool:
-    """挂起指定进程（仅 Windows）；失败返回 False。"""
-    if os.name != "nt":
-        return False
-    try:
-        kernel32 = ctypes.windll.kernel32
-        handle = kernel32.OpenProcess(_PROCESS_SUSPEND_RESUME, False, pid)
-        if not handle:
-            return False
-        try:
-            return ctypes.windll.ntdll.NtSuspendProcess(handle) == 0
-        finally:
-            kernel32.CloseHandle(handle)
-    except (AttributeError, OSError):
-        return False
-
-
-def _resume_process(pid: int) -> bool:
-    """恢复指定进程（仅 Windows）；失败返回 False。"""
-    if os.name != "nt":
-        return False
-    try:
-        kernel32 = ctypes.windll.kernel32
-        handle = kernel32.OpenProcess(_PROCESS_SUSPEND_RESUME, False, pid)
-        if not handle:
-            return False
-        try:
-            return ctypes.windll.ntdll.NtResumeProcess(handle) == 0
-        finally:
-            kernel32.CloseHandle(handle)
-    except (AttributeError, OSError):
-        return False
-
-
-class RunControl:
-    """暂停 / 继续：冻结当前子进程，并在压缩包之间暂停。"""
-
-    def __init__(self) -> None:
-        self._paused = threading.Event()
-        self._lock = threading.Lock()
-        self._process: subprocess.Popen | None = None
-        self._suspended = False
-
-    @property
-    def paused(self) -> bool:
-        """当前是否处于暂停状态。"""
-        return self._paused.is_set()
-
-    @property
-    def suspended(self) -> bool:
-        """当前压缩包是否真的被挂起；False 表示要等它结束才停下。"""
-        with self._lock:
-            return self._suspended
-
-    def pause(self) -> None:
-        """请求暂停，并立即挂起正在运行的归档工具。"""
-        self._paused.set()
-        with self._lock:
-            self._suspend_locked()
-
-    def resume(self) -> None:
-        """恢复运行。"""
-        self._paused.clear()
-        with self._lock:
-            self._resume_locked()
-
-    def attach(self, process: subprocess.Popen) -> None:
-        """记录当前子进程；若已请求暂停则立即挂起。"""
-        with self._lock:
-            self._process = process
-            if self._paused.is_set():
-                self._suspend_locked()
-
-    def detach(self) -> None:
-        """子进程结束时解除关联。"""
-        with self._lock:
-            self._process = None
-            self._suspended = False
-
-    def wait_until_resumed(self, cancel_event: threading.Event | None) -> None:
-        """在开始下一个压缩包前等待恢复，同时响应取消。"""
-        while self._paused.is_set():
-            if cancel_event is not None and cancel_event.is_set():
-                raise CancelledError("已取消")
-            time.sleep(0.1)
-        if cancel_event is not None and cancel_event.is_set():
-            raise CancelledError("已取消")
-
-    def _suspend_locked(self) -> None:
-        if self._process is None or self._suspended:
-            return
-        if _suspend_process(self._process.pid):
-            self._suspended = True
-
-    def _resume_locked(self) -> None:
-        if self._process is None or not self._suspended:
-            return
-        _resume_process(self._process.pid)
-        self._suspended = False
 
 
 @dataclass(frozen=True)
@@ -220,7 +114,6 @@ def extract_source(
     log: Callable[[str], None] | None = None,
     progress: Callable[[int, int], None] | None = None,
     percent: Callable[[int], None] | None = None,
-    control: RunControl | None = None,
 ) -> Outcome:
     """解开一个 1 级目录里的全部压缩包，按 2 级目录增量清理。"""
     outcome = Outcome()
@@ -235,15 +128,13 @@ def extract_source(
             failed = False
             for job in jobs:
                 _check_cancel(cancel_event)
-                if control is not None:
-                    control.wait_until_resumed(cancel_event)
                 if progress is not None:
                     progress(done, total)
                 if percent is not None:
                     percent(0)
                 _log(log, f"解压：{job.archive.name}")
                 success = _run_job(
-                    job, work_root, tools, cancel_event, log, outcome, percent, control,
+                    job, work_root, tools, cancel_event, log, outcome, percent,
                 )
                 done += 1
                 if progress is not None:
@@ -271,7 +162,6 @@ def _run_job(
     log: Callable[[str], None] | None,
     outcome: Outcome,
     percent: Callable[[int], None] | None = None,
-    control: RunControl | None = None,
 ) -> bool:
     """解压单个压缩包并并入目标目录；失败只记录。"""
     tool = tools.get("7z" if job.archive_format in ("zip", "7z") else "rar")
@@ -283,7 +173,7 @@ def _run_job(
     try:
         code, detail = _run_command(
             extract_command(tool, job.archive_format, job.archive, work),
-            cancel_event, percent, control,
+            cancel_event, percent,
         )
     except CancelledError:
         raise
@@ -325,7 +215,6 @@ def _run_command(
     command: list[str],
     cancel_event: threading.Event | None,
     percent: Callable[[int], None] | None = None,
-    control: RunControl | None = None,
 ) -> tuple[int, str]:
     """运行归档工具，边读输出边回报百分比；返回退出码与错误摘要。"""
     flags = getattr(subprocess, "CREATE_NO_WINDOW", 0) if os.name == "nt" else 0
@@ -333,8 +222,6 @@ def _run_command(
         command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
         bufsize=0, creationflags=flags,
     )
-    if control is not None:
-        control.attach(process)
     stream = process.stdout
     chunks: queue.Queue[bytes | None] = queue.Queue()
 
@@ -352,42 +239,36 @@ def _run_command(
     tail = bytearray()
     pending = ""
     last = -1
-    try:
-        while True:
-            if cancel_event is not None and cancel_event.is_set():
-                if control is not None:
-                    control.resume()
-                process.kill()
-                process.wait()
-                raise CancelledError("已取消")
-            try:
-                piece = chunks.get(timeout=0.2)
-            except queue.Empty:
-                if process.poll() is not None:
-                    break
-                continue
-            if piece is None:
+    while True:
+        if cancel_event is not None and cancel_event.is_set():
+            process.kill()
+            process.wait()
+            raise CancelledError("已取消")
+        try:
+            piece = chunks.get(timeout=0.2)
+        except queue.Empty:
+            if process.poll() is not None:
                 break
-            tail.extend(piece)
-            if len(tail) > _TAIL_LIMIT:
-                del tail[: len(tail) - _TAIL_LIMIT]
-            if percent is not None:
-                pending += piece.decode("utf-8", "replace")
-                for match in _PROGRESS_PATTERN.finditer(pending):
-                    value = int(match.group(1))
-                    if 0 <= value <= 100 and value != last:
-                        last = value
-                        percent(value)
-                pending = pending[-8:]
-        process.wait()
-        if stream is not None:
-            stream.close()
-        text = tail.decode("utf-8", "replace")
-        lines = [line.strip() for line in re.split(r"[\r\n]+", text) if line.strip()]
-        return process.returncode, lines[-1] if lines else ""
-    finally:
-        if control is not None:
-            control.detach()
+            continue
+        if piece is None:
+            break
+        tail.extend(piece)
+        if len(tail) > _TAIL_LIMIT:
+            del tail[: len(tail) - _TAIL_LIMIT]
+        if percent is not None:
+            pending += piece.decode("utf-8", "replace")
+            for match in _PROGRESS_PATTERN.finditer(pending):
+                value = int(match.group(1))
+                if 0 <= value <= 100 and value != last:
+                    last = value
+                    percent(value)
+            pending = pending[-8:]
+    process.wait()
+    if stream is not None:
+        stream.close()
+    text = tail.decode("utf-8", "replace")
+    lines = [line.strip() for line in re.split(r"[\r\n]+", text) if line.strip()]
+    return process.returncode, lines[-1] if lines else ""
 
 
 def _missing_tool_message(archive_format: str) -> str:

@@ -10,8 +10,6 @@ from PySide6.QtCore import Qt
 from PySide6.QtGui import QColor, QGuiApplication, QPalette
 from PySide6.QtWidgets import QApplication, QWidget
 
-from gui.resources import asset_path
-
 # 可选的主题设置。
 THEME_MODES = ("light", "dark", "system")
 
@@ -36,7 +34,6 @@ LIGHT = {
     "disabled_bg": "#FAFAFA",
     "disabled_border": "#EBEBEB",
     "primary_disabled": "#C9C9C9",
-    "check_border": "#8A8A8A",
 }
 
 DARK = {
@@ -60,7 +57,6 @@ DARK = {
     "disabled_bg": "#262626",
     "disabled_border": "#333333",
     "primary_disabled": "#3A3A3A",
-    "check_border": "#8A8A8A",
 }
 
 _TEMPLATE = Template("""
@@ -113,20 +109,6 @@ QPlainTextEdit {
     border-radius: 6px; selection-background-color: $accent; selection-color: $on_accent;
 }
 QCheckBox, QRadioButton { spacing: 8px; }
-QCheckBox { padding: 2px 0; min-height: 22px; }
-QCheckBox::indicator {
-    width: 16px; height: 16px; border-radius: 3px;
-    border: 1px solid $check_border; background: $surface;
-}
-QCheckBox::indicator:hover { border-color: $accent; }
-QCheckBox::indicator:checked {
-    background: $accent; border-color: $accent; image: url("$check");
-}
-QToolButton {
-    border: none; border-radius: 4px; padding: 4px; background: transparent;
-}
-QToolButton:hover { background: $hover; }
-QToolButton:pressed { background: $pressed; }
 QProgressBar {
     border: none; background: $track; border-radius: 3px;
     min-height: 6px; max-height: 6px;
@@ -193,8 +175,7 @@ def build_palette(table: dict[str, str]) -> QPalette:
 def apply_theme(app: QApplication, mode: str) -> str:
     """应用主题，返回实际使用的 light / dark。"""
     resolved = resolve_mode(mode)
-    table = dict(DARK if resolved == "dark" else LIGHT)
-    table["check"] = asset_path("check.png").as_posix()
+    table = DARK if resolved == "dark" else LIGHT
     setter = getattr(app.styleHints(), "setColorScheme", None)
     if setter is not None:
         try:
