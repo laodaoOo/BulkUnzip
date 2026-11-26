@@ -7,7 +7,7 @@ from pathlib import Path
 
 from PySide6.QtCore import QThread, Signal
 
-from core import CancelledError, Outcome, SourcePlan, extract_source
+from core import CancelledError, Outcome, RunControl, SourcePlan, extract_source
 
 
 class ExtractWorker(QThread):
@@ -35,9 +35,29 @@ class ExtractWorker(QThread):
         self._tools = tools
         self._delete_source = delete_source
         self._cancel = threading.Event()
+        self._control = RunControl()
+
+    @property
+    def paused(self) -> bool:
+        """当前是否处于暂停状态。"""
+        return self._control.paused
+
+    @property
+    def suspended(self) -> bool:
+        """当前压缩包是否真的挂起了。"""
+        return self._control.suspended
+
+    def pause(self) -> None:
+        """暂停：挂起当前压缩包，并在包之间停住。"""
+        self._control.pause()
+
+    def resume(self) -> None:
+        """继续解压。"""
+        self._control.resume()
 
     def cancel(self) -> None:
-        """请求停止：结束当前压缩包并跳过后续目录。"""
+        """请求停止：恢复被挂起的进程并结束当前压缩包。"""
+        self._control.resume()
         self._cancel.set()
 
     def run(self) -> None:
@@ -56,6 +76,7 @@ class ExtractWorker(QThread):
                         row, done, count,
                     ),
                     percent=lambda value, row=index: self.row_percent.emit(row, value),
+                    control=self._control,
                 )
                 total.merge(outcome)
                 self.row_finished.emit(index, outcome)
